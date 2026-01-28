@@ -451,16 +451,7 @@ Frame → Resize to 640x640 → ONNX Inference → NMS
 
 ---
 
-## 📊 Performance
 
-| Platform | Resolution | FPS | Notes |
-|----------|------------|-----|-------|
-| Windows (RTX GPU) | 640x480 | 25-30 | With display |
-| Windows (CPU) | 640x480 | 10-15 | With display |
-| Raspberry Pi 4 | 640x480 | 6-10 | frame_skip=4 |
-| Raspberry Pi 4 | 640x480 | 4-6 | With display |
-
----
 
 ## 📄 License
 
