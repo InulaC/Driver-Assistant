@@ -1,0 +1,98 @@
+# Vehicle Safety Alert System - Configuration
+# This file contains all tunable parameters for the system
+
+system:
+  log_level: INFO
+  log_file: telemetry.jsonl
+  telemetry_flush_interval_s: 1.0
+
+capture:
+  resolution: [640, 480]
+  target_fps: 15
+  timeout_ms: 100
+  reconnect_attempts: 3
+  reconnect_interval_ms: 500
+
+yolo:
+  model_path: models/object.onnx
+  input_size: [640, 640]
+  confidence_threshold: 0.25
+  iou_threshold: 0.45
+  skip_interval: 3
+  cache_ttl_ms: 400
+  classes:
+    - traffic_light_red
+    - traffic_light_yellow
+    - traffic_light_green
+    - pedestrian
+    - vehicle
+
+lane_detection:
+  roi_top_ratio: 0.5
+  hsv_white:
+    h_min: 0
+    h_max: 180
+    s_min: 0
+    s_max: 30
+    v_min: 200
+    v_max: 255
+  hsv_yellow:
+    h_min: 15
+    h_max: 35
+    s_min: 80
+    s_max: 255
+    v_min: 150
+    v_max: 255
+  gaussian_kernel: [5, 5]
+  canny_low: 50
+  canny_high: 150
+  hough_rho: 2
+  hough_theta_deg: 1
+  hough_threshold: 50
+  hough_min_length: 40
+  hough_max_gap: 100
+  slope_min: 0.5
+  slope_max: 2.0
+  min_line_length: 40
+  ema_alpha: 0.3
+  max_invalid_frames: 5
+
+danger_zone:
+  # Coordinates as ratios of frame dimensions
+  top_left_x: 0.375
+  top_left_y: 0.5
+  top_right_x: 0.625
+  top_right_y: 0.5
+  bottom_left_x: 0.125
+  bottom_left_y: 1.0
+  bottom_right_x: 0.875
+  bottom_right_y: 1.0
+
+alerts:
+  cooldown_ms: 300
+  sounds:
+    collision: sounds/collision.wav
+    lane_left: sounds/lane_left.wav
+    lane_right: sounds/lane_right.wav
+    red_light: sounds/red_light.wav
+    yellow_light: sounds/yellow_light.wav
+    system_warning: sounds/warning.wav
+
+gpio:
+  enabled: true
+  buzzer_pin: 18
+
+ir_sensor:
+  enabled: false
+  gpio_trigger: 23
+  gpio_echo: 24
+  poll_interval_ms: 100
+  threshold_cm: 50
+
+display:
+  window_name: "Driver Assistant"
+  overlay_alpha: 0.6
+  bbox_thickness: 2
+  lane_color: [0, 255, 0]
+  danger_zone_color: [0, 0, 255]
+  font_scale: 0.6
