@@ -18,7 +18,7 @@ yolo:
   input_size: [640, 640]
   confidence_threshold: 0.25
   iou_threshold: 0.45
-  frame_skip: 4
+  frame_skip: 5
   cache_ttl_ms: 500
   classes:
     - traffic_light
