@@ -1,0 +1,839 @@
+#!/usr/bin/env python3
+"""
+Vehicle Safety Alert System - Main Entry Point
+
+Real-time traffic light, pedestrian, vehicle, lane departure & proximity alerts.
+
+System Class: Safety-Critical Driver Assistance (Proof-of-Concept)
+Primary Platform: Raspberry Pi 4 (8GB RAM)
+Execution Mode: Headless or Graphical (configurable)
+Inference Mode: CPU-only, fully on-device
+
+Usage:
+    # Raspberry Pi (headless, production)
+    python -m src.main --source csi --headless
+    
+    # Raspberry Pi (with display, testing)
+    python -m src.main --source csi --display
+    
+    # Windows (webcam, development)
+    python -m src.main --source webcam --display
+    
+    # Windows (video file, debugging)
+    python -m src.main --source video --video-path test.mp4 --display
+"""
+
+import argparse
+import logging
+import signal
+import sys
+import time
+from pathlib import Path
+from typing import Optional, List
+
+import numpy as np
+
+# Add project root to path
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.config import Config, load_config
+from src.capture import create_camera_adapter, Frame, FrameSource, CaptureConfig
+from src.detection import YOLODetector, Detection, DetectionResult
+from src.lane import LaneDetectionPipeline, LaneResult
+from src.alerts import (
+    AlertDecisionEngine, 
+    AlertEvent, 
+    AlertType,
+    AudioAlertManager,
+)
+from src.alerts.gpio_buzzer import create_buzzer_controller
+from src.display import DisplayRenderer, OverlayConfig
+from src.telemetry import TelemetryLogger, FrameMetrics, SystemMetrics
+from src.telemetry.metrics import FPSCounter
+from src.sensors import create_ir_sensor
+from src.utils.platform import is_raspberry_pi
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+
+class DriverAssistant:
+    """
+    Main application class for the Vehicle Safety Alert System.
+    
+    Coordinates all modules in the single-threaded main processing loop:
+    1. Frame Acquisition
+    2. YOLO Object Detection (scheduled, frame-skipped)
+    3. Lane Detection (every frame)
+    4. Trapezoidal Danger Zone Evaluation
+    5. Alert Decision Logic (priority-based)
+    6. Audio + Optional Visual Alert Dispatch
+    """
+    
+    def __init__(
+        self,
+        config: Config,
+        source: FrameSource,
+        video_path: Optional[str] = None,
+        display_enabled: bool = False,
+        disable_ir: bool = True,
+    ):
+        """
+        Initialize Driver Assistant.
+        
+        Args:
+            config: System configuration
+            source: Frame source type
+            video_path: Path to video file (if source is VIDEO_FILE)
+            display_enabled: Whether to enable graphical display
+            disable_ir: Whether to disable IR sensor
+        """
+        self._config = config
+        self._source = source
+        self._video_path = video_path
+        self._display_enabled = display_enabled
+        self._disable_ir = disable_ir
+        
+        # Running state
+        self._running = False
+        self._frame_count = 0
+        self._dropped_frames = 0
+        
+        # Module instances (initialized in setup)
+        self._camera = None
+        self._detector = None
+        self._lane_pipeline = None
+        self._decision_engine = None
+        self._audio_manager = None
+        self._buzzer = None
+        self._display = None
+        self._telemetry = None
+        self._ir_sensor = None
+        
+        # Alert persistence for display (survives across skipped frames)
+        self._last_display_alert = None
+        self._alert_hold_counter = 0
+        
+        # Metrics
+        self._fps_counter = FPSCounter(window_size=30)
+        self._system_metrics = SystemMetrics()
+        
+        # Signal handling
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+    
+    def setup(self) -> bool:
+        """
+        Initialize all system modules.
+        
+        Returns:
+            True if all critical modules initialized successfully
+        """
+        logger.info("=" * 60)
+        logger.info("Vehicle Safety Alert System - Initializing")
+        logger.info("=" * 60)
+        
+        # 1. Initialize camera
+        if not self._setup_camera():
+            return False
+        
+        # 2. Initialize YOLO detector (CRITICAL - abort on failure)
+        if not self._setup_detector():
+            return False
+        
+        # 3. Initialize lane detection
+        self._setup_lane_detection()
+        
+        # 4. Initialize alert decision engine
+        self._setup_decision_engine()
+        
+        # 5. Initialize audio alert system
+        self._setup_audio()
+        
+        # 6. Initialize GPIO buzzer (optional)
+        self._setup_buzzer()
+        
+        # 7. Initialize display (optional)
+        if self._display_enabled:
+            self._setup_display()
+        
+        # 8. Initialize telemetry
+        self._setup_telemetry()
+        
+        # 9. Initialize IR sensor (optional, Phase 4)
+        if not self._disable_ir:
+            self._setup_ir_sensor()
+        
+        logger.info("=" * 60)
+        logger.info("System initialization complete")
+        logger.info("=" * 60)
+        
+        return True
+    
+    def _setup_camera(self) -> bool:
+        """Initialize camera adapter."""
+        try:
+            capture_config = CaptureConfig(
+                resolution=self._config.capture.resolution,
+                target_fps=self._config.capture.target_fps,
+                timeout_ms=self._config.capture.timeout_ms,
+                source=self._source,
+                video_path=self._video_path,
+            )
+            
+            self._camera = create_camera_adapter(capture_config)
+            
+            if not self._camera.initialize():
+                logger.error("Camera initialization failed")
+                return False
+            
+            logger.info(f"Camera initialized: {self._source.value}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Camera setup failed: {e}")
+            return False
+    
+    def _setup_detector(self) -> bool:
+        """Initialize YOLO detector. CRITICAL - aborts on failure."""
+        try:
+            model_path = Path(PROJECT_ROOT) / self._config.yolo.model_path
+            
+            if not model_path.exists():
+                logger.critical(f"YOLO model not found: {model_path}")
+                logger.critical("System cannot start without detection model")
+                return False
+            
+            self._detector = YOLODetector(
+                model_path=str(model_path),
+                conf_threshold=self._config.yolo.confidence_threshold,
+                iou_threshold=self._config.yolo.iou_threshold,
+                input_size=self._config.yolo.input_width,
+                frame_skip=self._config.yolo.frame_skip,
+            )
+            
+            # Warmup inference
+            logger.info("Running YOLO warmup inference...")
+            dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            self._detector.detect(dummy_frame)
+            
+            logger.info(f"YOLO detector initialized: {self._detector.model_info}")
+            return True
+            
+        except Exception as e:
+            logger.critical(f"YOLO detector initialization failed: {e}")
+            return False
+    
+    def _setup_lane_detection(self) -> None:
+        """Initialize lane detection pipeline."""
+        self._lane_pipeline = LaneDetectionPipeline(self._config.lane_detection)
+        logger.info("Lane detection pipeline initialized")
+    
+    def _setup_decision_engine(self) -> None:
+        """Initialize alert decision engine."""
+        width, height = self._config.capture.resolution
+        
+        self._decision_engine = AlertDecisionEngine(
+            cooldown_ms=self._config.alerts.cooldown_ms,
+            traffic_light_cooldown_ms=self._config.alerts.traffic_light_cooldown_ms,
+            confidence_threshold=self._config.yolo.confidence_threshold,
+            frame_width=width,
+            frame_height=height,
+            danger_zone_config=self._config.danger_zone,
+        )
+        logger.info("Alert decision engine initialized")
+    
+    def _setup_audio(self) -> None:
+        """Initialize audio alert manager."""
+        self._audio_manager = AudioAlertManager(enabled=True)
+        logger.info("Audio alert manager initialized")
+    
+    def _setup_buzzer(self) -> None:
+        """Initialize GPIO buzzer controller."""
+        self._buzzer = create_buzzer_controller(
+            pin=self._config.gpio.buzzer_pin,
+            enabled=self._config.gpio.enabled,
+        )
+        if self._buzzer.initialize():
+            logger.info("GPIO buzzer initialized")
+        else:
+            logger.info("GPIO buzzer not available (Windows or no GPIO)")
+    
+    def _setup_display(self) -> None:
+        """Initialize display renderer."""
+        overlay_config = OverlayConfig(
+            window_name=self._config.display.window_name,
+            lane_color=self._config.display.lane_color,
+            danger_zone_color=self._config.display.danger_zone_color,
+            bbox_thickness=self._config.display.bbox_thickness,
+            font_scale=self._config.display.font_scale,
+        )
+        
+        self._display = DisplayRenderer(overlay_config)
+        if self._display.initialize():
+            logger.info("Display renderer initialized")
+        else:
+            logger.warning("Display initialization failed - running headless")
+            self._display = None
+    
+    def _setup_telemetry(self) -> None:
+        """Initialize telemetry logger."""
+        log_file = Path(PROJECT_ROOT) / self._config.system.log_file
+        
+        self._telemetry = TelemetryLogger(
+            log_file=str(log_file),
+            flush_interval=self._config.system.telemetry_flush_interval_s,
+        )
+        self._telemetry.start()
+        logger.info(f"Telemetry logging to: {log_file}")
+    
+    def _setup_ir_sensor(self) -> None:
+        """Initialize IR distance sensor."""
+        self._ir_sensor = create_ir_sensor(
+            trigger_pin=self._config.ir_sensor.gpio_trigger,
+            echo_pin=self._config.ir_sensor.gpio_echo,
+            poll_interval_ms=self._config.ir_sensor.poll_interval_ms,
+            threshold_cm=self._config.ir_sensor.threshold_cm,
+            enabled=self._config.ir_sensor.enabled,
+        )
+        
+        if self._ir_sensor.initialize():
+            self._ir_sensor.start()
+            logger.info("IR distance sensor initialized")
+        else:
+            logger.info("IR sensor not available")
+    
+    def run(self) -> None:
+        """
+        Run the main processing loop.
+        
+        This is the deterministic single-threaded main loop that processes
+        frames through all pipeline stages.
+        """
+        logger.info("Starting main processing loop...")
+        self._running = True
+        target_frame_time = 1.0 / self._config.capture.target_fps
+        
+        try:
+            while self._running:
+                loop_start = time.monotonic()
+                
+                # Process one frame
+                self._process_frame()
+                
+                # Enforce frame timing
+                elapsed = time.monotonic() - loop_start
+                sleep_time = target_frame_time - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                
+                # Check for quit (display mode)
+                if self._display and self._display.should_quit():
+                    logger.info("Quit requested via display")
+                    self._running = False
+                    
+        except Exception as e:
+            logger.error(f"Main loop error: {e}")
+            raise
+        finally:
+            self.cleanup()
+    
+    def _process_frame(self) -> None:
+        """Process a single frame through the complete pipeline."""
+        frame_start = time.monotonic()
+        metrics = FrameMetrics(frame_seq=self._frame_count)
+        
+        # =====================================================================
+        # Stage 1: Frame Acquisition
+        # =====================================================================
+        capture_start = time.monotonic()
+        frame = self._camera.capture()
+        metrics.capture_latency_ms = (time.monotonic() - capture_start) * 1000
+        
+        if frame is None:
+            self._dropped_frames += 1
+            metrics.dropped_frames = self._dropped_frames
+            logger.warning(f"Frame dropped (total: {self._dropped_frames})")
+            return
+        
+        metrics.timestamp = frame.timestamp
+        
+        # =====================================================================
+        # Stage 2: Lane Detection (every frame)
+        # =====================================================================
+        lane_start = time.monotonic()
+        lane_result = self._lane_pipeline.process(frame)
+        metrics.lane_latency_ms = (time.monotonic() - lane_start) * 1000
+        metrics.lane_valid = lane_result.valid
+        metrics.lane_partial = lane_result.partial
+        
+        # =====================================================================
+        # Stage 3: YOLO Object Detection (scheduled with frame skipping)
+        # =====================================================================
+        yolo_start = time.monotonic()
+        detection_result = self._detector.detect(frame.data)
+        
+        if not detection_result.from_cache:
+            metrics.yolo_latency_ms = (time.monotonic() - yolo_start) * 1000
+            metrics.yolo_skipped = False
+        else:
+            metrics.yolo_skipped = True
+        
+        metrics.detections_count = len(detection_result.detections)
+        
+        # =====================================================================
+        # Stage 4: Update Dynamic Danger Zone (from lane detection)
+        # =====================================================================
+        # Must update danger zone BEFORE evaluating collision risks
+        if lane_result.valid:
+            self._decision_engine.danger_zone.update_from_lanes(
+                left_lane=lane_result.left_lane,
+                right_lane=lane_result.right_lane,
+                frame_width=frame.width,
+                frame_height=frame.height,
+            )
+        
+        # =====================================================================
+        # Stage 5: Danger Zone Evaluation (collision risks)
+        # =====================================================================
+        collision_risks = self._evaluate_collision_risks(detection_result.detections)
+        metrics.collision_risks = len(collision_risks)
+        
+        # =====================================================================
+        # Stage 6: Lane Departure Detection
+        # =====================================================================
+        lane_departure = self._check_lane_departure(lane_result, frame.width)
+        
+        # =====================================================================
+        # Stage 7: Alert Decision
+        # =====================================================================
+        decision_start = time.monotonic()
+        alert = self._decision_engine.evaluate(
+            detections=detection_result.detections,
+            lane_departure=lane_departure,
+            lane_result=lane_result,  # For dynamic danger zone
+        )
+        metrics.decision_latency_ms = (time.monotonic() - decision_start) * 1000
+        
+        # =====================================================================
+        # Stage 8: Alert Dispatch (non-blocking)
+        # =====================================================================
+        if alert:
+            alert_start = time.monotonic()
+            self._dispatch_alert(alert)
+            metrics.alert_latency_ms = (time.monotonic() - alert_start) * 1000
+            metrics.alert_type = alert.alert_type.value
+        
+        # =====================================================================
+        # Stage 9: Alert Persistence for Display
+        # =====================================================================
+        # Determine which alert to show on display (new alert or held alert)
+        display_alert = self._get_display_alert(alert)
+        
+        # =====================================================================
+        # Stage 10: Display Rendering (optional, non-blocking)
+        # =====================================================================
+        if self._display and self._display.is_active:
+            self._render_display(
+                frame,
+                detection_result.detections,
+                lane_result,
+                display_alert,
+                collision_risks,
+            )
+        
+        # =====================================================================
+        # Stage 11: Telemetry
+        # =====================================================================
+        fps = self._fps_counter.tick()
+        self._system_metrics.update_if_needed()
+        self._telemetry.log_frame(metrics, self._system_metrics, fps)
+        
+        # Update frame counter
+        self._frame_count += 1
+        
+        # Periodic logging
+        if self._frame_count % 100 == 0:
+            logger.info(
+                f"Frame {self._frame_count}: FPS={fps:.1f}, "
+                f"Lane={'OK' if lane_result.valid else 'INVALID'}, "
+                f"Detections={metrics.detections_count}, "
+                f"Risks={metrics.collision_risks}"
+            )
+    
+    def _evaluate_collision_risks(
+        self,
+        detections: List[Detection],
+    ) -> List[Detection]:
+        """Evaluate which detections are collision risks."""
+        collision_risks = []
+        width, height = self._config.capture.resolution
+        danger_zone = self._decision_engine.danger_zone
+        
+        for det in detections:
+            # Only check pedestrians, vehicles, animals
+            if not det.label.is_obstacle():
+                continue
+            
+            if danger_zone.intersects_bbox(det.bbox, width, height):
+                collision_risks.append(det)
+        
+        return collision_risks
+    
+    def _check_lane_departure(
+        self,
+        lane_result: LaneResult,
+        frame_width: int,
+    ) -> Optional[str]:
+        """
+        Check for lane departure.
+        
+        Uses the center of the frame bottom as the "vehicle position".
+        
+        Args:
+            lane_result: Lane detection result
+            frame_width: Width of frame
+            
+        Returns:
+            "left", "right", or None
+        """
+        if not lane_result.valid:
+            return None
+        
+        # Vehicle position is assumed to be center-bottom of frame
+        vehicle_x = frame_width / 2
+        
+        # Get lane boundaries at the bottom of the lane detection area
+        y_check = lane_result.left_lane.y_range[1] - 20  # Near bottom
+        
+        left_boundary = lane_result.left_lane.evaluate(y_check)
+        right_boundary = lane_result.right_lane.evaluate(y_check)
+        
+        # Check if vehicle center is outside lanes
+        margin = 20  # pixels of tolerance
+        
+        if vehicle_x < left_boundary + margin:
+            return "left"
+        elif vehicle_x > right_boundary - margin:
+            return "right"
+        
+        return None
+    
+    def _get_display_alert(self, current_alert: Optional[AlertEvent]) -> Optional[AlertEvent]:
+        """
+        Get the alert to display, implementing alert persistence across frames.
+        
+        When a new alert fires, it's stored and shown for `alert_hold_frames` frames.
+        This ensures alerts remain visible even during YOLO frame skipping.
+        
+        Args:
+            current_alert: The alert from current frame's evaluation (may be None)
+            
+        Returns:
+            Alert to display (either new alert or held previous alert)
+        """
+        if current_alert is not None:
+            # New alert - reset counter and store it
+            self._last_display_alert = current_alert
+            self._alert_hold_counter = self._config.alerts.alert_hold_frames
+            return current_alert
+        
+        # No new alert - check if we should keep showing the previous one
+        if self._alert_hold_counter > 0 and self._last_display_alert is not None:
+            self._alert_hold_counter -= 1
+            return self._last_display_alert
+        
+        # Hold period expired, clear the stored alert
+        self._last_display_alert = None
+        return None
+    
+    def _dispatch_alert(self, alert: AlertEvent) -> None:
+        """Dispatch alert to audio and buzzer outputs."""
+        # Audio alert
+        self._audio_manager.play_alert(alert)
+        
+        # GPIO buzzer (if available)
+        if self._buzzer and self._buzzer.is_available:
+            self._buzzer.play_alert(alert.alert_type)
+    
+    def _render_display(
+        self,
+        frame: Frame,
+        detections: List[Detection],
+        lane_result: LaneResult,
+        alert: Optional[AlertEvent],
+        collision_risks: List[Detection],
+    ) -> None:
+        """Render overlays and display frame."""
+        # Get danger zone polygon
+        width, height = self._config.capture.resolution
+        danger_zone_polygon = self._decision_engine.get_danger_zone_polygon()
+        
+        # Prepare info panel data
+        info = {
+            "fps": self._fps_counter.fps,
+            "frame": self._frame_count,
+            "detections": len(detections),
+            "lane_valid": lane_result.valid,
+            "danger_zone_dynamic": self._decision_engine.danger_zone.is_dynamic,
+        }
+        
+        # Render frame with overlays
+        output = self._display.render(
+            frame=frame.data,
+            detections=detections,
+            lane_result=lane_result,
+            danger_zone=danger_zone_polygon,
+            alert=alert,
+            info=info,
+            collision_risks=collision_risks,
+        )
+        
+        # Show frame
+        self._display.show(output)
+    
+    def cleanup(self) -> None:
+        """Clean up all resources."""
+        logger.info("Cleaning up...")
+        
+        self._running = False
+        
+        if self._ir_sensor:
+            self._ir_sensor.cleanup()
+        
+        if self._telemetry:
+            self._telemetry.stop()
+        
+        if self._display:
+            self._display.cleanup()
+        
+        if self._buzzer:
+            self._buzzer.cleanup()
+        
+        if self._audio_manager:
+            self._audio_manager.stop()
+        
+        if self._camera:
+            self._camera.release()
+        
+        logger.info("Cleanup complete")
+    
+    def _signal_handler(self, signum, frame) -> None:
+        """Handle shutdown signals."""
+        logger.info(f"Received signal {signum}, shutting down...")
+        self._running = False
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Vehicle Safety Alert System",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Raspberry Pi (headless, production)
+  python -m src.main --source csi --headless
+
+  # Raspberry Pi (with display, testing)
+  python -m src.main --source csi --display
+
+  # Windows (webcam, development)
+  python -m src.main --source webcam --display
+
+  # Windows (video file, debugging)
+  python -m src.main --source video --video-path test.mp4 --display
+        """,
+    )
+    
+    # Input source
+    source_group = parser.add_argument_group("Input Source")
+    source_group.add_argument(
+        "--source",
+        type=str,
+        choices=["csi", "webcam", "video"],
+        default="webcam" if not is_raspberry_pi() else "csi",
+        help="Frame source (default: csi on Pi, webcam on Windows)",
+    )
+    source_group.add_argument(
+        "--video-path",
+        type=str,
+        default=None,
+        help="Path to video file (required if source=video)",
+    )
+    source_group.add_argument(
+        "--camera-index",
+        type=int,
+        default=0,
+        help="Camera index for webcam source (default: 0)",
+    )
+    
+    # Display
+    display_group = parser.add_argument_group("Display")
+    display_mutex = display_group.add_mutually_exclusive_group()
+    display_mutex.add_argument(
+        "--display",
+        action="store_true",
+        help="Enable graphical overlay display",
+    )
+    display_mutex.add_argument(
+        "--headless",
+        action="store_true",
+        help="Disable display (audio-only mode)",
+    )
+    
+    # Model
+    model_group = parser.add_argument_group("Model")
+    model_group.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Path to YOLOv11s ONNX model (overrides config)",
+    )
+    
+    # Configuration
+    config_group = parser.add_argument_group("Configuration")
+    config_group.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to configuration YAML file",
+    )
+    config_group.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Path to telemetry log file (default: telemetry.jsonl)",
+    )
+    config_group.add_argument(
+        "--log-level",
+        type=str,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default="INFO",
+        help="Logging level (default: INFO)",
+    )
+    
+    # Inference
+    inference_group = parser.add_argument_group("Inference")
+    inference_group.add_argument(
+        "--yolo-skip",
+        type=int,
+        default=None,
+        help="YOLO inference frame skip interval (default: from config)",
+    )
+    inference_group.add_argument(
+        "--confidence",
+        type=float,
+        default=None,
+        help="Detection confidence threshold (default: from config)",
+    )
+    
+    # Sensors
+    sensor_group = parser.add_argument_group("Sensors")
+    sensor_group.add_argument(
+        "--disable-ir",
+        action="store_true",
+        default=True,
+        help="Disable IR distance sensor (default: disabled)",
+    )
+    sensor_group.add_argument(
+        "--enable-ir",
+        action="store_true",
+        help="Enable IR distance sensor",
+    )
+    
+    # Resolution
+    parser.add_argument(
+        "--resolution",
+        type=str,
+        default=None,
+        help="Frame resolution as WxH (default: 640x480)",
+    )
+    
+    return parser.parse_args()
+
+
+def main() -> int:
+    """Main entry point."""
+    args = parse_args()
+    
+    # Set logging level
+    logging.getLogger().setLevel(getattr(logging, args.log_level))
+    
+    # Load configuration
+    config = load_config(args.config)
+    
+    # Apply CLI overrides
+    if args.model:
+        config.yolo.model_path = args.model
+    
+    if args.log_file:
+        config.system.log_file = args.log_file
+    
+    if args.yolo_skip:
+        config.yolo.frame_skip = args.yolo_skip
+    
+    if args.confidence:
+        config.yolo.confidence_threshold = args.confidence
+    
+    if args.resolution:
+        try:
+            w, h = args.resolution.lower().split("x")
+            config.capture.resolution = (int(w), int(h))
+        except ValueError:
+            logger.error(f"Invalid resolution format: {args.resolution}")
+            return 1
+    
+    # Determine frame source
+    source_map = {
+        "csi": FrameSource.CSI,
+        "webcam": FrameSource.WEBCAM,
+        "video": FrameSource.VIDEO_FILE,
+    }
+    source = source_map[args.source]
+    
+    # Validate video path
+    if source == FrameSource.VIDEO_FILE and not args.video_path:
+        logger.error("--video-path required when source=video")
+        return 1
+    
+    # Determine display mode
+    display_enabled = args.display or (not args.headless and not is_raspberry_pi())
+    
+    # Determine IR sensor state
+    disable_ir = args.disable_ir and not args.enable_ir
+    
+    # Create and run application
+    app = DriverAssistant(
+        config=config,
+        source=source,
+        video_path=args.video_path,
+        display_enabled=display_enabled,
+        disable_ir=disable_ir,
+    )
+    
+    try:
+        if not app.setup():
+            logger.critical("System setup failed - aborting")
+            return 1
+        
+        app.run()
+        return 0
+        
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user")
+        return 0
+    except Exception as e:
+        logger.exception(f"Fatal error: {e}")
+        return 1
+    finally:
+        app.cleanup()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

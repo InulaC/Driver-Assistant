@@ -18,17 +18,17 @@ yolo:
   input_size: [640, 640]
   confidence_threshold: 0.25
   iou_threshold: 0.45
-  skip_interval: 3
-  cache_ttl_ms: 400
+  frame_skip: 4
+  cache_ttl_ms: 500
   classes:
-    - traffic_light_red
-    - traffic_light_yellow
-    - traffic_light_green
+    - traffic_light
+    - stop_sign
     - pedestrian
     - vehicle
+    - animal
 
 lane_detection:
-  roi_top_ratio: 0.5
+  roi_top_ratio: 0.51
   hsv_white:
     h_min: 0
     h_max: 180
@@ -58,24 +58,30 @@ lane_detection:
   max_invalid_frames: 5
 
 danger_zone:
-  # Coordinates as ratios of frame dimensions
-  top_left_x: 0.375
-  top_left_y: 0.5
-  top_right_x: 0.625
-  top_right_y: 0.5
-  bottom_left_x: 0.125
-  bottom_left_y: 1.0
-  bottom_right_x: 0.875
+  # Trapezoidal danger zone for collision detection
+  # Narrower at top (farther), wider at bottom (closer)
+  # Top edge - narrow, farther objects
+  top_left_x: 0.40
+  top_left_y: 0.70      # Start 80% down frame (shorter zone)
+  top_right_x: 0.60
+  top_right_y: 0.70     # Must match top_left_y!
+  # Bottom edge - wider, closer objects  
+  bottom_left_x: 0.25
+  bottom_left_y: 1.0    # Stick to bottom
+  bottom_right_x: 0.75
   bottom_right_y: 1.0
 
 alerts:
   cooldown_ms: 300
+  traffic_light_cooldown_ms: 25000  # Separate longer cooldown for traffic light alerts
+  alert_hold_frames: 5  # How many frames to keep showing an alert on display
   sounds:
     collision: sounds/collision.wav
     lane_left: sounds/lane_left.wav
     lane_right: sounds/lane_right.wav
-    red_light: sounds/red_light.wav
-    yellow_light: sounds/yellow_light.wav
+    traffic_light: sounds/traffic_light.wav
+    stop_sign: sounds/stop_sign.wav
+    animal: sounds/animal.wav
     system_warning: sounds/warning.wav
 
 gpio:

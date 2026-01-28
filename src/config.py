@@ -67,31 +67,41 @@ class LaneDetectionConfig:
 @dataclass
 class YOLOConfig:
     """YOLO object detection configuration."""
-    model_path: str = "models/object.onnx"
-    input_size: Tuple[int, int] = (640, 640)
+    model_path: str = "models/object.onnx"  # YOLO11s COCO pre-trained
+    input_width: int = 640
+    input_height: int = 640
     confidence_threshold: float = 0.25
     iou_threshold: float = 0.45
-    skip_interval: int = 3
+    frame_skip: int = 2  # Run inference every N frames
     cache_ttl_ms: float = 400.0
     classes: List[str] = field(default_factory=lambda: [
-        "traffic_light_red",
-        "traffic_light_yellow", 
-        "traffic_light_green",
+        "traffic_light",
+        "stop_sign",
         "pedestrian",
-        "vehicle"
+        "vehicle",
+        "animal"
     ])
 
 
 @dataclass
 class DangerZoneConfig:
-    """Trapezoidal danger zone configuration."""
-    top_left_x: float = 0.375
-    top_left_y: float = 0.5
-    top_right_x: float = 0.625
-    top_right_y: float = 0.5
-    bottom_left_x: float = 0.125
+    """
+    Trapezoidal danger zone configuration.
+    
+    The trapezoid represents the forward driving corridor:
+    - Narrower at top (farther objects, center of road)
+    - Wider at bottom (closer objects, full lane width)
+    - Starts at ~65% down the frame to focus on closer hazards
+    """
+    # Top edge (narrow, farther distance)
+    top_left_x: float = 0.42
+    top_left_y: float = 0.65
+    top_right_x: float = 0.58
+    top_right_y: float = 0.65
+    # Bottom edge (wider, closer distance)
+    bottom_left_x: float = 0.2
     bottom_left_y: float = 1.0
-    bottom_right_x: float = 0.875
+    bottom_right_x: float = 0.8
     bottom_right_y: float = 1.0
     
     def get_polygon(self, width: int, height: int) -> List[Tuple[int, int]]:
@@ -110,8 +120,9 @@ class AlertSoundsConfig:
     collision: str = "sounds/collision.wav"
     lane_left: str = "sounds/lane_left.wav"
     lane_right: str = "sounds/lane_right.wav"
-    red_light: str = "sounds/red_light.wav"
-    yellow_light: str = "sounds/yellow_light.wav"
+    traffic_light: str = "sounds/traffic_light.wav"
+    stop_sign: str = "sounds/stop_sign.wav"
+    animal: str = "sounds/animal.wav"
     system_warning: str = "sounds/warning.wav"
 
 
@@ -119,6 +130,8 @@ class AlertSoundsConfig:
 class AlertConfig:
     """Alert system configuration."""
     cooldown_ms: int = 300
+    traffic_light_cooldown_ms: int = 5000  # Separate cooldown for traffic lights
+    alert_hold_frames: int = 5  # How many frames to keep showing an alert after it triggers
     sounds: AlertSoundsConfig = field(default_factory=AlertSoundsConfig)
 
 
@@ -237,17 +250,20 @@ def load_config(config_path: Optional[str] = None) -> Config:
     # Parse YOLO config
     if "yolo" in data:
         yolo_data = data["yolo"]
+        # Handle both old input_size and new input_width/input_height formats
         input_size = yolo_data.get("input_size", [640, 640])
+        input_width = yolo_data.get("input_width", input_size[0] if isinstance(input_size, list) else 640)
+        input_height = yolo_data.get("input_height", input_size[1] if isinstance(input_size, list) else 640)
         config.yolo = YOLOConfig(
             model_path=yolo_data.get("model_path", "models/object.onnx"),
-            input_size=tuple(input_size),
+            input_width=input_width,
+            input_height=input_height,
             confidence_threshold=yolo_data.get("confidence_threshold", 0.25),
             iou_threshold=yolo_data.get("iou_threshold", 0.45),
-            skip_interval=yolo_data.get("skip_interval", 3),
+            frame_skip=yolo_data.get("frame_skip", yolo_data.get("skip_interval", 2)),
             cache_ttl_ms=yolo_data.get("cache_ttl_ms", 400.0),
             classes=yolo_data.get("classes", [
-                "traffic_light_red", "traffic_light_yellow",
-                "traffic_light_green", "pedestrian", "vehicle"
+                "traffic_light", "pedestrian", "vehicle", "stop_sign", "animal"
             ]),
         )
     
@@ -294,12 +310,15 @@ def load_config(config_path: Optional[str] = None) -> Config:
         sounds_data = alert_data.get("sounds", {})
         config.alerts = AlertConfig(
             cooldown_ms=alert_data.get("cooldown_ms", 300),
+            traffic_light_cooldown_ms=alert_data.get("traffic_light_cooldown_ms", 5000),
+            alert_hold_frames=alert_data.get("alert_hold_frames", 5),
             sounds=AlertSoundsConfig(
                 collision=sounds_data.get("collision", "sounds/collision.wav"),
                 lane_left=sounds_data.get("lane_left", "sounds/lane_left.wav"),
                 lane_right=sounds_data.get("lane_right", "sounds/lane_right.wav"),
-                red_light=sounds_data.get("red_light", "sounds/red_light.wav"),
-                yellow_light=sounds_data.get("yellow_light", "sounds/yellow_light.wav"),
+                traffic_light=sounds_data.get("traffic_light", "sounds/traffic_light.wav"),
+                stop_sign=sounds_data.get("stop_sign", "sounds/stop_sign.wav"),
+                animal=sounds_data.get("animal", "sounds/animal.wav"),
                 system_warning=sounds_data.get("system_warning", "sounds/warning.wav"),
             ),
         )
