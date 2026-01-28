@@ -1,8 +1,10 @@
-"""Audio alert manager using Python's winsound (Windows) or beep fallback."""
+"""Audio alert manager using Python's winsound (Windows) or pygame/beep (Linux/Pi)."""
 
 import platform
 import threading
 import time
+import subprocess
+import os
 from typing import Optional
 from .types import AlertType, AlertEvent
 
@@ -12,7 +14,7 @@ class AudioAlertManager:
     Manages audio alerts using Python built-in sound generation.
     
     On Windows: Uses winsound.Beep() for tone generation
-    On Linux/Pi: Uses system beep or prints to console
+    On Linux/Pi: Uses pygame for tone generation (preferred) or console beep fallback
     
     Features:
     - Non-blocking playback in separate thread
@@ -49,6 +51,7 @@ class AudioAlertManager:
     def __init__(self, enabled: bool = True):
         self.enabled = enabled
         self._is_windows = platform.system() == "Windows"
+        self._is_linux = platform.system() == "Linux"
         self._playing = False
         self._current_priority = 999
         self._stop_flag = threading.Event()
@@ -61,6 +64,19 @@ class AudioAlertManager:
                 import winsound
                 self._winsound = winsound
             except ImportError:
+                pass
+        
+        # Try to initialize pygame for Linux/Pi audio
+        self._pygame_available = False
+        self._pygame = None
+        if self._is_linux:
+            try:
+                import pygame
+                pygame.mixer.pre_init(frequency=44100, size=-16, channels=1, buffer=512)
+                pygame.mixer.init()
+                self._pygame = pygame
+                self._pygame_available = True
+            except Exception:
                 pass
     
     def play_alert(self, alert: AlertEvent) -> bool:
@@ -107,12 +123,61 @@ class AudioAlertManager:
                 elif self._winsound:
                     # Windows beep
                     self._winsound.Beep(freq, duration)
+                elif self._pygame_available:
+                    # Linux/Pi: Generate tone with pygame
+                    self._play_pygame_tone(freq, duration)
                 else:
-                    # Fallback: just wait (no sound on non-Windows without additional setup)
-                    time.sleep(duration / 1000.0)
+                    # Last resort fallback: try system beep command
+                    self._play_system_beep(freq, duration)
         finally:
             self._playing = False
             self._current_priority = 999
+    
+    def _play_pygame_tone(self, frequency: int, duration_ms: int) -> None:
+        """Generate and play a tone using pygame."""
+        try:
+            import numpy as np
+            
+            sample_rate = 44100
+            duration_s = duration_ms / 1000.0
+            n_samples = int(sample_rate * duration_s)
+            
+            # Generate sine wave
+            t = np.linspace(0, duration_s, n_samples, dtype=np.float32)
+            wave = np.sin(2 * np.pi * frequency * t)
+            
+            # Apply fade in/out to avoid clicks (10ms fade)
+            fade_samples = int(sample_rate * 0.01)
+            if fade_samples > 0 and n_samples > 2 * fade_samples:
+                fade_in = np.linspace(0, 1, fade_samples, dtype=np.float32)
+                fade_out = np.linspace(1, 0, fade_samples, dtype=np.float32)
+                wave[:fade_samples] *= fade_in
+                wave[-fade_samples:] *= fade_out
+            
+            # Convert to 16-bit integer
+            wave = (wave * 32767).astype(np.int16)
+            
+            # Create pygame Sound and play
+            sound = self._pygame.sndarray.make_sound(wave)
+            sound.play()
+            time.sleep(duration_s)
+            sound.stop()
+        except Exception:
+            # If pygame tone fails, use timing only
+            time.sleep(duration_ms / 1000.0)
+    
+    def _play_system_beep(self, frequency: int, duration_ms: int) -> None:
+        """Try to play beep using system commands (Linux fallback)."""
+        try:
+            # Try using 'beep' command if available
+            subprocess.run(
+                ['beep', '-f', str(frequency), '-l', str(duration_ms)],
+                capture_output=True,
+                timeout=duration_ms / 1000.0 + 0.5
+            )
+        except Exception:
+            # If beep not available, just wait
+            time.sleep(duration_ms / 1000.0)
     
     def stop(self) -> None:
         """Stop current playback."""

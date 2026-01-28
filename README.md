@@ -120,7 +120,7 @@ A real-time driver assistance system that detects road hazards, lane departures,
 
 1. **Clone the repository**
    ```powershell
-   git clone https://github.com/YOUR_USERNAME/Driver-Assistant.git
+   git clone https://github.com/InulaC/Driver-Assistant.git
    cd Driver-Assistant
    ```
 
@@ -142,6 +142,27 @@ A real-time driver assistance system that detects road hazards, lane departures,
 
 ### Raspberry Pi Setup
 
+#### Option A: Automatic Setup (Recommended)
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/InulaC/Driver-Assistant.git
+   cd Driver-Assistant
+   ```
+
+2. **Run the setup script**
+   ```bash
+   chmod +x scripts/setup-pi.sh
+   ./scripts/setup-pi.sh
+   ```
+
+3. **Reboot** (required for group permissions)
+   ```bash
+   sudo reboot
+   ```
+
+#### Option B: Manual Setup
+
 1. **Update system**
    ```bash
    sudo apt update && sudo apt upgrade -y
@@ -150,7 +171,7 @@ A real-time driver assistance system that detects road hazards, lane departures,
 2. **Install system dependencies**
    ```bash
    sudo apt install -y python3-pip python3-venv python3-opencv
-   sudo apt install -y libatlas-base-dev libhdf5-dev
+   sudo apt install -y libatlas-base-dev libhdf5-dev pulseaudio
    ```
 
 3. **Enable camera**
@@ -162,7 +183,7 @@ A real-time driver assistance system that detects road hazards, lane departures,
 
 4. **Clone and setup**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/Driver-Assistant.git
+   git clone https://github.com/InulaC/Driver-Assistant.git
    cd Driver-Assistant
    python3 -m venv venv
    source venv/bin/activate
@@ -173,10 +194,91 @@ A real-time driver assistance system that detects road hazards, lane departures,
    pip install -r requirements-pi.txt
    ```
 
-6. **Wire the buzzer (optional)**
+6. **Add user to required groups**
+   ```bash
+   sudo usermod -aG video,gpio,audio $USER
+   # Logout and login again for changes to take effect
+   ```
+
+7. **Wire the buzzer (optional)**
    ```
    Buzzer (+) ──▶ GPIO 18 (Pin 12)
    Buzzer (-) ──▶ GND (Pin 14)
+   ```
+
+---
+
+## 🔄 Auto-Start on Boot (Raspberry Pi)
+
+The system can be configured to start automatically when the Raspberry Pi boots.
+
+### Enable Auto-Start
+
+1. **Copy the service file** (if not done by setup script)
+   ```bash
+   sudo cp scripts/driver-assistant.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   ```
+
+2. **Enable the service**
+   ```bash
+   sudo systemctl enable driver-assistant
+   ```
+
+3. **Start the service**
+   ```bash
+   sudo systemctl start driver-assistant
+   ```
+
+### Service Management Commands
+
+| Command | Description |
+|---------|-------------|
+| `sudo systemctl start driver-assistant` | Start the service |
+| `sudo systemctl stop driver-assistant` | Stop the service |
+| `sudo systemctl restart driver-assistant` | Restart the service |
+| `sudo systemctl status driver-assistant` | Check service status |
+| `sudo systemctl enable driver-assistant` | Enable auto-start on boot |
+| `sudo systemctl disable driver-assistant` | Disable auto-start |
+
+### View Logs
+
+```bash
+# View service logs (real-time)
+journalctl -u driver-assistant -f
+
+# View application logs
+tail -f ~/Driver-Assistant/logs/service.log
+
+# View telemetry data
+tail -f ~/Driver-Assistant/telemetry.jsonl
+```
+
+### Troubleshooting Auto-Start
+
+If the service fails to start:
+
+1. **Check status for errors**
+   ```bash
+   sudo systemctl status driver-assistant
+   ```
+
+2. **Check detailed logs**
+   ```bash
+   journalctl -u driver-assistant -n 50 --no-pager
+   ```
+
+3. **Common issues:**
+   - Camera not enabled: Run `sudo raspi-config` and enable camera
+   - Permission denied: Ensure user is in `video`, `gpio`, `audio` groups
+   - Python not found: Check the path in the service file matches your setup
+
+4. **Edit service file if needed**
+   ```bash
+   sudo nano /etc/systemd/system/driver-assistant.service
+   # After editing:
+   sudo systemctl daemon-reload
+   sudo systemctl restart driver-assistant
    ```
 
 ---

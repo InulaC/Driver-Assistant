@@ -28,7 +28,7 @@ yolo:
     - animal
 
 lane_detection:
-  roi_top_ratio: 0.51
+  roi_top_ratio: 0.625
   hsv_white:
     h_min: 0
     h_max: 180
