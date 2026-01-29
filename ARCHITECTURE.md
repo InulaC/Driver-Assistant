@@ -7,6 +7,18 @@
 
 ---
 
+## Implementation Notes (recent updates)
+
+- Dynamic lane-aligned `DangerZone` implemented: when both lanes are detected the danger polygon is updated from lane polynomials; otherwise the configured trapezoid is used as a fallback.
+- Traffic-light alerts simplified to a single detection alert (implementation uses a single traffic-light detected type with a separate `alerts.traffic_light_cooldown_ms` configuration to avoid repeated notifications).
+- Alert display persistence: `alerts.alert_hold_frames` controls how many frames a display alert remains visible across YOLO-skip frames.
+- Programmatic audio fallback: tones can be generated in software (pygame on Linux, `winsound` on Windows) so external WAV files are optional; GPIO buzzer remains available as reinforcement on Raspberry Pi.
+- Deployment helpers: added `scripts/driver-assistant.service` and `scripts/setup-pi.sh` to support Pi auto-start and initial setup.
+- Telemetry rounding: telemetry numeric fields (latencies, temperatures) are rounded for readability in JSONL output.
+
+
+---
+
 ## 1. System Overview
 
 ### 1.1 System Description

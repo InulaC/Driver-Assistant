@@ -30,6 +30,8 @@ A real-time driver assistance system that detects road hazards, lane departures,
 - **Object Detection**: Detects pedestrians, vehicles, animals, traffic lights, and stop signs using YOLOv11s
 - **Lane Detection**: Classical computer vision pipeline with polynomial curve fitting
 - **Dynamic Danger Zone**: Trapezoidal collision detection zone that aligns with detected lanes
+ - **Programmatic Beeps**: Tones generated in software (no external audio files required by default)
+ - **Deployment helpers**: systemd service and `scripts/setup-pi.sh` for Raspberry Pi auto-start
 - **Priority-Based Alerts**: Collision warnings take precedence over other alerts
 - **Audio & Haptic Feedback**: Beep patterns via speakers and GPIO buzzer
 - **Cross-Platform**: Runs on Windows (webcam/video) and Raspberry Pi (CSI camera)
@@ -309,9 +311,9 @@ python driver_assistant.py --source csi
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--source` | Input source: `csi`, `opencv`, `video` | `csi` |
+| `--source` | Input source: `csi`, `webcam`, `video` | `csi` |
 | `--video-path` | Path to video file (if source=video) | None |
-| `--camera-index` | Webcam index (if source=opencv) | `0` |
+| `--camera-index` | Webcam index (if source=webcam) | `0` |
 | `--display` | Show visualization window | Disabled |
 | `--config` | Path to config file | `config.yaml` |
 | `--no-ir` | Disable IR sensor | Enabled |
@@ -356,6 +358,8 @@ alerts:
 | Alerts too frequent | Increase `alerts.cooldown_ms` |
 | Low FPS on Pi | Increase `yolo.frame_skip` to 5-6 |
 | Lane detection unstable | Increase `lane_detection.ema_alpha` (0.4-0.5) |
+| Traffic light alerts repeat too often | Increase `alerts.traffic_light_cooldown_ms` |
+| Alerts disappear on skipped frames | Increase `alerts.alert_hold_frames` to persist display |
 
 ---
 
