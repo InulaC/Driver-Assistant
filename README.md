@@ -48,10 +48,10 @@ A real-time driver assistance system that detects road hazards, lane departures,
 │  ┌──────────────┐    ┌──────────────────────────────────────────────────┐  │
 │  │   CAPTURE    │    │              PROCESSING PIPELINE                 │  │
 │  │              │    │                                                  │  │
-│  │ • CSI Camera │───▶│  Frame ──▶ Lane Detection ──▶ YOLO Detection    │  │
+│  │ • CSI Camera │──▶│  Frame ──▶ Lane Detection ──▶ YOLO Detection    │  │
 │  │ • Webcam     │    │              │                      │            │  │
 │  │ • Video File │    │              ▼                      ▼            │  │
-│  └──────────────┘    │      Lane Polynomials      Bounding Boxes       │  │
+│  └──────────────┘    │      Lane Polynomials      Bounding Boxes        │  │
 │                      │              │                      │            │  │
 │                      │              └──────────┬───────────┘            │  │
 │                      │                         ▼                        │  │
@@ -70,10 +70,10 @@ A real-time driver assistance system that detects road hazards, lane departures,
 │                                                │                            │
 │                      ┌─────────────────────────┼─────────────────────────┐  │
 │                      │                         ▼                         │  │
-│                      │  ┌─────────┐  ┌──────────────┐  ┌─────────────┐  │  │
-│                      │  │ DISPLAY │  │ AUDIO ALERTS │  │ GPIO BUZZER │  │  │
-│                      │  │ Overlay │  │   (Beeps)    │  │  (Pi Only)  │  │  │
-│                      │  └─────────┘  └──────────────┘  └─────────────┘  │  │
+│                      │  ┌─────────┐  ┌──────────────┐  ┌─────────────┐   │  │
+│                      │  │ DISPLAY │  │ AUDIO ALERTS │  │ GPIO BUZZER │   │  │
+│                      │  │ Overlay │  │   (Beeps)    │  │  (Pi Only)  │   │  │
+│                      │  └─────────┘  └──────────────┘  └─────────────┘   │  │
 │                      │                    OUTPUT LAYER                   │  │
 │                      └───────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -292,7 +292,7 @@ python driver_assistant.py --source video --video-path videos/test.mp4 --display
 
 ### Run with Webcam (Windows)
 ```bash
-python driver_assistant.py --source opencv --camera-index 0 --display
+python driver_assistant.py --source webcam --camera-index 0 --display
 ```
 
 ### Run with CSI Camera (Raspberry Pi)
