@@ -19,7 +19,10 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-telemetry/
+
+# Telemetry logs
+telemetry.jsonl
+*.jsonl
 
 # Virtual environments
 venv/
