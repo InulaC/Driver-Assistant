@@ -67,6 +67,7 @@ class LaneDetectionConfig:
 @dataclass
 class YOLOConfig:
     """YOLO object detection configuration."""
+    enabled: bool = True  # Set to False to disable YOLO detection
     model_path: str = "models/object.onnx"  # YOLO11s COCO pre-trained
     input_width: int = 640
     input_height: int = 640
@@ -183,6 +184,8 @@ class Config:
     gpio: GPIOConfig = field(default_factory=GPIOConfig)
     ir_sensor: IRSensorConfig = field(default_factory=IRSensorConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
+    # Store raw config dict for modules that parse their own config
+    _raw_config: Dict[str, Any] = field(default_factory=dict)
 
 
 def _parse_hsv_range(data: Dict[str, Any]) -> HSVRange:
@@ -255,6 +258,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
         input_width = yolo_data.get("input_width", input_size[0] if isinstance(input_size, list) else 640)
         input_height = yolo_data.get("input_height", input_size[1] if isinstance(input_size, list) else 640)
         config.yolo = YOLOConfig(
+            enabled=yolo_data.get("enabled", True),
             model_path=yolo_data.get("model_path", "models/object.onnx"),
             input_width=input_width,
             input_height=input_height,
@@ -355,5 +359,8 @@ def load_config(config_path: Optional[str] = None) -> Config:
             danger_zone_color=tuple(dz_color),
             font_scale=disp_data.get("font_scale", 0.6),
         )
+    
+    # Store raw config for modules that parse their own config
+    config._raw_config = data
     
     return config

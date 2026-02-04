@@ -14,6 +14,7 @@ capture:
   reconnect_interval_ms: 500
 
 yolo:
+  enabled: false                 # Set to false to disable YOLO detection entirely
   model_path: models/object.onnx
   input_size: [640, 640]
   confidence_threshold: 0.25
@@ -62,9 +63,9 @@ danger_zone:
   # Narrower at top (farther), wider at bottom (closer)
   # Top edge - narrow, farther objects
   top_left_x: 0.40
-  top_left_y: 0.70      # Start 80% down frame (shorter zone)
+  top_left_y: 0.78      # Start 78% down frame (shorter zone)
   top_right_x: 0.60
-  top_right_y: 0.70     # Must match top_left_y!
+  top_right_y: 0.78     # Must match top_left_y!
   # Bottom edge - wider, closer objects  
   bottom_left_x: 0.25
   bottom_left_y: 1.0    # Stick to bottom
@@ -102,3 +103,44 @@ display:
   lane_color: [0, 255, 0]
   danger_zone_color: [0, 0, 255]
   font_scale: 0.6
+
+# Overtake Assistant - Advisory Only Module
+# DISCLAIMER: This is NOT a safety system. Never rely on it for driving decisions.
+overtake_assistant:
+  enabled: true
+  
+  # Traffic side: "left" = drive on left side (overtake on RIGHT) - UK, Japan, India, Sri Lanka, etc.
+  #               "right" = drive on right side (overtake on LEFT) - US, Europe, etc.
+  traffic_side: "left"  # Change to "right" for right-hand traffic countries
+  
+  # Enable conditions - module stays DISABLED if not met
+  min_lane_confidence: 0.3      # Minimum lane polynomial confidence (0.0-1.0)
+  stability_frames: 3           # Frames of stable lanes before evaluation begins
+  
+  # Clearance zone geometry (area to left of our lane)
+  zone_width_ratio: 1.0         # Zone width as ratio of our lane width
+  zone_y_top_ratio: 0.65        # Top of zone as ratio of frame height
+  
+  # Safe determination - conservative defaults
+  safe_frames_required: 5       # Consecutive safe frames required for SAFE status
+  
+  # Lane marking detection (broken vs solid line)
+  # Mode options:
+  #   "assume_broken" - Always assume broken line (overtaking allowed)
+  #   "assume_solid"  - Always assume solid line (overtaking not allowed)
+  #   "auto"          - Detect using image pixel analysis (recommended)
+  line_detection_mode: "auto"
+  broken_line_density_threshold: 0.5  # Legacy, not used in auto mode
+  
+  # Image-based line detection parameters (used when mode is "auto")
+  intensity_threshold: 180      # Pixel brightness to consider as "lane marking" (0-255)
+  min_gap_ratio: 0.15           # Minimum gap ratio to classify as broken (0.0-1.0)
+  min_transitions: 2            # Minimum bright-to-dark transitions for broken line
+  
+  # Display colors (BGR format)
+  zone_color_safe: [0, 255, 0]        # Green when SAFE
+  zone_color_unsafe: [0, 165, 255]    # Orange when UNSAFE  
+  zone_color_disabled: [128, 128, 128]  # Gray when DISABLED
+  
+  # Indicator position on screen
+  indicator_position: [20, 100]

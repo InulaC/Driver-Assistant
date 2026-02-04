@@ -53,6 +53,8 @@ from src.telemetry import TelemetryLogger, FrameMetrics, SystemMetrics
 from src.telemetry.metrics import FPSCounter
 from src.sensors import create_ir_sensor
 from src.utils.platform import is_raspberry_pi
+from src.overtake import OvertakeAssistant, OvertakeAdvisory, OvertakeStatus
+from src.overtake.assistant import create_overtake_assistant
 
 # Setup logging
 logging.basicConfig(
@@ -115,6 +117,7 @@ class DriverAssistant:
         self._display = None
         self._telemetry = None
         self._ir_sensor = None
+        self._overtake_assistant = None  # Advisory-only module
         
         # Alert persistence for display (survives across skipped frames)
         self._last_display_alert = None
@@ -143,9 +146,13 @@ class DriverAssistant:
         if not self._setup_camera():
             return False
         
-        # 2. Initialize YOLO detector (CRITICAL - abort on failure)
-        if not self._setup_detector():
-            return False
+        # 2. Initialize YOLO detector (optional - can be disabled in config)
+        if self._config.yolo.enabled:
+            if not self._setup_detector():
+                return False
+        else:
+            logger.info("YOLO detection disabled in config")
+            self._detector = None
         
         # 3. Initialize lane detection
         self._setup_lane_detection()
@@ -169,6 +176,9 @@ class DriverAssistant:
         # 9. Initialize IR sensor (optional, Phase 4)
         if not self._disable_ir:
             self._setup_ir_sensor()
+        
+        # 10. Initialize Overtake Assistant (advisory-only module)
+        self._setup_overtake_assistant()
         
         logger.info("=" * 60)
         logger.info("System initialization complete")
@@ -309,6 +319,25 @@ class DriverAssistant:
         else:
             logger.info("IR sensor not available")
     
+    def _setup_overtake_assistant(self) -> None:
+        """Initialize Overtake Assistant (advisory-only module)."""
+        try:
+            # Load overtake config from raw config dict
+            self._overtake_assistant = create_overtake_assistant(
+                self._config._raw_config if hasattr(self._config, '_raw_config') else {}
+            )
+            
+            if self._overtake_assistant.config.enabled:
+                logger.info("Overtake Assistant initialized (ADVISORY ONLY)")
+            else:
+                logger.info("Overtake Assistant disabled in config")
+                
+        except Exception as e:
+            logger.warning(f"Overtake Assistant setup failed: {e}")
+            # Create a disabled instance
+            from src.overtake.assistant import OvertakeConfig
+            self._overtake_assistant = OvertakeAssistant(OvertakeConfig(enabled=False))
+    
     def run(self) -> None:
         """
         Run the main processing loop.
@@ -376,16 +405,23 @@ class DriverAssistant:
         # =====================================================================
         # Stage 3: YOLO Object Detection (scheduled with frame skipping)
         # =====================================================================
-        yolo_start = time.monotonic()
-        detection_result = self._detector.detect(frame.data)
-        
-        if not detection_result.from_cache:
-            metrics.yolo_latency_ms = (time.monotonic() - yolo_start) * 1000
-            metrics.yolo_skipped = False
+        if self._detector is not None:
+            yolo_start = time.monotonic()
+            detection_result = self._detector.detect(frame.data)
+            
+            if not detection_result.from_cache:
+                metrics.yolo_latency_ms = (time.monotonic() - yolo_start) * 1000
+                metrics.yolo_skipped = False
+            else:
+                metrics.yolo_skipped = True
+            
+            metrics.detections_count = len(detection_result.detections)
+            detections = detection_result.detections
         else:
+            # YOLO disabled - empty detections
             metrics.yolo_skipped = True
-        
-        metrics.detections_count = len(detection_result.detections)
+            detections = []
+            metrics.detections_count = 0
         
         # =====================================================================
         # Stage 4: Update Dynamic Danger Zone (from lane detection)
@@ -402,7 +438,7 @@ class DriverAssistant:
         # =====================================================================
         # Stage 5: Danger Zone Evaluation (collision risks)
         # =====================================================================
-        collision_risks = self._evaluate_collision_risks(detection_result.detections)
+        collision_risks = self._evaluate_collision_risks(detections)
         metrics.collision_risks = len(collision_risks)
         
         # =====================================================================
@@ -411,11 +447,18 @@ class DriverAssistant:
         lane_departure = self._check_lane_departure(lane_result, frame.width)
         
         # =====================================================================
+        # Stage 6.5: Overtake Advisory (advisory-only, does NOT affect alerts)
+        # =====================================================================
+        overtake_advisory = self._evaluate_overtake_advisory(
+            lane_result, detections, frame.width, frame.height, frame.data
+        )
+        
+        # =====================================================================
         # Stage 7: Alert Decision
         # =====================================================================
         decision_start = time.monotonic()
         alert = self._decision_engine.evaluate(
-            detections=detection_result.detections,
+            detections=detections,
             lane_departure=lane_departure,
             lane_result=lane_result,  # For dynamic danger zone
         )
@@ -442,10 +485,11 @@ class DriverAssistant:
         if self._display and self._display.is_active:
             self._render_display(
                 frame,
-                detection_result.detections,
+                detections,
                 lane_result,
                 display_alert,
                 collision_risks,
+                overtake_advisory,
             )
         
         # =====================================================================
@@ -562,6 +606,47 @@ class DriverAssistant:
         if self._buzzer and self._buzzer.is_available:
             self._buzzer.play_alert(alert.alert_type)
     
+    def _evaluate_overtake_advisory(
+        self,
+        lane_result: LaneResult,
+        detections: List[Detection],
+        frame_width: int,
+        frame_height: int,
+        frame_data: np.ndarray,
+    ) -> OvertakeAdvisory:
+        """
+        Evaluate overtake advisory (Stage 6.5).
+        
+        This is an advisory-only module that provides visual feedback
+        about potential overtake safety. It does NOT affect alerts.
+        
+        Args:
+            lane_result: Current lane detection result
+            detections: Current detections
+            frame_width: Frame width in pixels
+            frame_height: Frame height in pixels
+            frame_data: Raw frame data for line analysis
+            
+        Returns:
+            OvertakeAdvisory with status and visualization data
+        """
+        if self._overtake_assistant is None:
+            return OvertakeAdvisory(
+                status=OvertakeStatus.DISABLED,
+                reason="Overtake assistant not initialized",
+                clearance_zone=None,
+                confidence=0.0,
+                vehicles_in_zone=0,
+            )
+        
+        return self._overtake_assistant.evaluate(
+            lane_result=lane_result,
+            detections=detections,
+            frame_width=frame_width,
+            frame_height=frame_height,
+            frame=frame_data,
+        )
+    
     def _render_display(
         self,
         frame: Frame,
@@ -569,6 +654,7 @@ class DriverAssistant:
         lane_result: LaneResult,
         alert: Optional[AlertEvent],
         collision_risks: List[Detection],
+        overtake_advisory: Optional[OvertakeAdvisory] = None,
     ) -> None:
         """Render overlays and display frame."""
         # Get danger zone polygon
@@ -593,6 +679,7 @@ class DriverAssistant:
             alert=alert,
             info=info,
             collision_risks=collision_risks,
+            overtake_advisory=overtake_advisory,
         )
         
         # Show frame

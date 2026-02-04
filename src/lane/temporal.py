@@ -3,6 +3,9 @@ Temporal stabilization for lane detection.
 
 Applies exponential moving average (EMA) filtering to smooth lane
 detections over time and handle brief detection failures.
+
+Also handles erratic detection (e.g. zigzag areas near crosswalks) by
+freezing to a stable straight line when the lane position jumps too much.
 """
 
 import time
@@ -20,6 +23,10 @@ class StabilizedLane:
     last_valid_time: float
     invalid_frame_count: int
     smoothed_coeffs: Optional[np.ndarray]
+    # For erratic detection handling
+    last_x_bottom: Optional[float] = None
+    erratic_frame_count: int = 0
+    frozen_polynomial: Optional[LanePolynomial] = None
 
 
 class TemporalStabilizer:
@@ -30,6 +37,7 @@ class TemporalStabilizer:
     - EMA smoothing of polynomial coefficients
     - Reuse of last valid detection during brief failures
     - Graceful degradation after extended failures
+    - Erratic detection handling (freezes to straight line)
     """
     
     def __init__(
@@ -37,6 +45,8 @@ class TemporalStabilizer:
         ema_alpha: float = 0.3,
         max_invalid_frames: int = 5,
         max_invalid_time_ms: float = 500.0,
+        max_jump_pixels: int = 30,
+        erratic_freeze_frames: int = 10,
     ):
         """
         Initialize temporal stabilizer.
@@ -45,10 +55,14 @@ class TemporalStabilizer:
             ema_alpha: EMA smoothing factor (0-1, higher = more responsive)
             max_invalid_frames: Max frames to reuse last valid detection
             max_invalid_time_ms: Max time to reuse last valid detection
+            max_jump_pixels: Max x-position change before considered erratic
+            erratic_freeze_frames: Frames to freeze after erratic detection
         """
         self._alpha = ema_alpha
         self._max_invalid_frames = max_invalid_frames
         self._max_invalid_time_s = max_invalid_time_ms / 1000.0
+        self._max_jump_pixels = max_jump_pixels
+        self._erratic_freeze_frames = erratic_freeze_frames
         
         # State for left and right lanes
         self._left: Optional[StabilizedLane] = None
@@ -106,6 +120,9 @@ class TemporalStabilizer:
                 last_valid_time=0.0,
                 invalid_frame_count=0,
                 smoothed_coeffs=None,
+                last_x_bottom=None,
+                erratic_frame_count=0,
+                frozen_polynomial=None,
             )
             if is_left:
                 self._left = state
@@ -113,22 +130,48 @@ class TemporalStabilizer:
                 self._right = state
         
         if new_detection is not None:
-            # Valid detection - apply EMA smoothing
+            # Check for erratic jump (indicates zigzag/crosswalk area)
             new_coeffs = np.array(new_detection.coefficients)
+            y_bottom = new_detection.y_range[1]
+            new_x_bottom = new_coeffs[0] * y_bottom**2 + new_coeffs[1] * y_bottom + new_coeffs[2]
             
+            is_erratic = False
+            if state.last_x_bottom is not None:
+                jump = abs(new_x_bottom - state.last_x_bottom)
+                if jump > self._max_jump_pixels:
+                    is_erratic = True
+                    state.erratic_frame_count = self._erratic_freeze_frames
+            
+            # If we're in erratic mode, hold the frozen line
+            if state.erratic_frame_count > 0:
+                state.erratic_frame_count -= 1
+                state.last_x_bottom = new_x_bottom  # Still track position
+                
+                if state.frozen_polynomial is not None:
+                    # Return the frozen straight line
+                    return state.frozen_polynomial
+                # If no frozen line, fall through to normal processing
+            
+            # Normal processing - create/save frozen line before smoothing
+            if state.smoothed_coeffs is not None and state.erratic_frame_count == 0:
+                # Save current stable line as potential freeze target
+                state.frozen_polynomial = self._create_straight_line(
+                    state.smoothed_coeffs, new_detection.y_range
+                )
+            
+            # Apply EMA smoothing
             if state.smoothed_coeffs is not None:
-                # Apply EMA
                 smoothed = (
                     self._alpha * new_coeffs +
                     (1 - self._alpha) * state.smoothed_coeffs
                 )
             else:
-                # First detection
                 smoothed = new_coeffs
             
             state.smoothed_coeffs = smoothed
             state.last_valid_time = timestamp
             state.invalid_frame_count = 0
+            state.last_x_bottom = new_x_bottom
             
             # Create smoothed polynomial
             state.polynomial = LanePolynomial(
@@ -167,7 +210,49 @@ class TemporalStabilizer:
                 # Too long without valid detection - clear state
                 state.polynomial = None
                 state.smoothed_coeffs = None
+                state.frozen_polynomial = None
+                state.erratic_frame_count = 0
                 return None
+    
+    def _create_straight_line(
+        self,
+        coeffs: np.ndarray,
+        y_range: Tuple[int, int],
+    ) -> LanePolynomial:
+        """
+        Create a straight line (linear) from current coefficients.
+        
+        This is used as a frozen placeholder during erratic detection.
+        Removes the quadratic term to prevent curved lines in zigzag areas.
+        
+        Args:
+            coeffs: Current polynomial coefficients (a, b, c)
+            y_range: Y-coordinate range
+            
+        Returns:
+            Straight line polynomial with a=0
+        """
+        y_start, y_end = y_range
+        
+        # Evaluate current polynomial at endpoints
+        a, b, c = coeffs
+        x_start = a * y_start**2 + b * y_start + c
+        x_end = a * y_end**2 + b * y_end + c
+        
+        # Create linear coefficients: x = 0*y² + b'*y + c'
+        if y_end != y_start:
+            new_b = (x_end - x_start) / (y_end - y_start)
+            new_c = x_start - new_b * y_start
+        else:
+            new_b = 0.0
+            new_c = x_start
+        
+        return LanePolynomial(
+            coefficients=(0.0, new_b, new_c),
+            y_range=y_range,
+            confidence=0.7,  # Reduced confidence for frozen line
+            point_count=0,
+        )
     
     def reset(self) -> None:
         """Reset all stabilization state."""

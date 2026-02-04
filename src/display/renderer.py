@@ -17,6 +17,15 @@ from src.detection.result import Detection, DetectionLabel
 from src.lane.result import LaneResult, LanePolynomial
 from src.alerts.types import AlertType, AlertEvent
 
+# Import OvertakeAdvisory for rendering (optional dependency)
+try:
+    from src.overtake.types import OvertakeAdvisory, OvertakeStatus
+    _OVERTAKE_AVAILABLE = True
+except ImportError:
+    _OVERTAKE_AVAILABLE = False
+    OvertakeAdvisory = None
+    OvertakeStatus = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -143,6 +152,7 @@ class DisplayRenderer:
         alert: Optional[AlertEvent] = None,
         info: Optional[dict] = None,
         collision_risks: Optional[List[Detection]] = None,
+        overtake_advisory: Optional['OvertakeAdvisory'] = None,
     ) -> np.ndarray:
         """
         Render all overlays on frame.
@@ -155,6 +165,7 @@ class DisplayRenderer:
             alert: Current alert event
             info: Info panel data (fps, frame count, etc.)
             collision_risks: Detections in danger zone
+            overtake_advisory: Overtake assistant advisory (optional)
             
         Returns:
             Frame with overlays rendered
@@ -171,6 +182,10 @@ class DisplayRenderer:
         # Layer 1: Danger zone (background)
         if danger_zone:
             output = self._draw_danger_zone(output, danger_zone, is_dynamic)
+        
+        # Layer 1.5: Overtake clearance zone (advisory visualization)
+        if overtake_advisory and _OVERTAKE_AVAILABLE:
+            output = self._draw_overtake_advisory(output, overtake_advisory)
         
         # Layer 2: Lane lines
         if lane_result:
@@ -219,6 +234,127 @@ class DisplayRenderer:
         
         # Draw border
         cv2.polylines(output, [pts], True, border_color, 2)
+        
+        return output
+    
+    def _draw_overtake_advisory(
+        self,
+        frame: np.ndarray,
+        advisory: 'OvertakeAdvisory',
+    ) -> np.ndarray:
+        """
+        Draw overtake advisory visualization.
+        
+        Includes:
+        - Clearance zone polygon (if enabled)
+        - Status indicator text with reason
+        
+        Args:
+            frame: Input frame
+            advisory: Overtake advisory result
+            
+        Returns:
+            Frame with overtake visualization
+        """
+        output = frame.copy()
+        
+        if not _OVERTAKE_AVAILABLE:
+            return output
+        
+        # Define colors based on status
+        if advisory.status == OvertakeStatus.SAFE:
+            zone_color = (0, 255, 0)       # Green
+            text_color = (0, 255, 0)
+            status_text = "OVERTAKE: SAFE"
+        elif advisory.status == OvertakeStatus.UNSAFE:
+            zone_color = (0, 165, 255)     # Orange (BGR)
+            text_color = (0, 165, 255)
+            status_text = "OVERTAKE: UNSAFE"
+        else:  # DISABLED
+            zone_color = (128, 128, 128)   # Gray
+            text_color = (200, 200, 200)   # Lighter gray for visibility
+            status_text = "OVERTAKE: DISABLED"
+        
+        # Draw clearance zone if available (even when DISABLED for debugging)
+        if advisory.clearance_zone:
+            overlay = output.copy()
+            pts = np.array(advisory.clearance_zone, np.int32).reshape((-1, 1, 2))
+            
+            # Fill with semi-transparent color
+            fill_color = tuple(c // 4 for c in zone_color)
+            cv2.fillPoly(overlay, [pts], fill_color)
+            
+            # Blend
+            alpha = 0.3
+            output = cv2.addWeighted(overlay, alpha, output, 1 - alpha, 0)
+            
+            # Draw border
+            cv2.polylines(output, [pts], True, zone_color, 2)
+        
+        # Draw status indicator box (bottom-left corner) - larger and more visible
+        h, w = frame.shape[:2]
+        box_x, box_y = 10, h - 80
+        box_width = 280
+        box_height = 70
+        
+        # Semi-transparent background box
+        overlay_box = output.copy()
+        cv2.rectangle(
+            overlay_box,
+            (box_x, box_y),
+            (box_x + box_width, box_y + box_height),
+            (0, 0, 0),
+            -1
+        )
+        output = cv2.addWeighted(overlay_box, 0.7, output, 0.3, 0)
+        
+        # Draw border around box
+        cv2.rectangle(
+            output,
+            (box_x, box_y),
+            (box_x + box_width, box_y + box_height),
+            text_color,
+            2
+        )
+        
+        # Draw status text (larger)
+        cv2.putText(
+            output,
+            status_text,
+            (box_x + 10, box_y + 28),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            text_color,
+            2,
+            cv2.LINE_AA,
+        )
+        
+        # Draw reason (smaller, below status)
+        reason_text = advisory.reason[:35] + "..." if len(advisory.reason) > 35 else advisory.reason
+        cv2.putText(
+            output,
+            reason_text,
+            (box_x + 10, box_y + 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (180, 180, 180),
+            1,
+            cv2.LINE_AA,
+        )
+        
+        # Draw vehicles count if any
+        if advisory.vehicles_in_zone > 0:
+            vehicle_text = f"Vehicles: {advisory.vehicles_in_zone}"
+            cv2.putText(
+                output,
+                vehicle_text,
+                (box_x + 180, box_y + 28),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 100, 255),
+                1,
+                cv2.LINE_AA,
+            )
         
         return output
     
