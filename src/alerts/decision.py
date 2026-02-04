@@ -179,6 +179,7 @@ class AlertDecisionEngine:
     - Priority-based alert selection (only highest priority fires)
     - Cooldown to prevent alert spam
     - Confidence thresholds
+    - LiDAR confirmation for collision alerts (optional but recommended)
     """
     
     def __init__(
@@ -189,12 +190,16 @@ class AlertDecisionEngine:
         frame_width: int = 640,
         frame_height: int = 480,
         danger_zone_config = None,  # DangerZoneConfig from config.yaml
+        lidar_required: bool = True,  # Require LiDAR confirmation for collision
+        lidar_threshold_cm: int = 300,  # LiDAR distance threshold for collision (3m default)
     ):
         self.cooldown_ms = cooldown_ms
         self.traffic_light_cooldown_ms = traffic_light_cooldown_ms
         self.confidence_threshold = confidence_threshold
         self.frame_width = frame_width
         self.frame_height = frame_height
+        self.lidar_required = lidar_required
+        self.lidar_threshold_cm = lidar_threshold_cm
         
         # Create danger zone with config values if provided
         if danger_zone_config is not None:
@@ -214,6 +219,21 @@ class AlertDecisionEngine:
         # Track last alert time per type for cooldown
         self._last_alert_time: dict[AlertType, float] = {}
         self._current_alert: Optional[AlertEvent] = None
+        
+        # LiDAR state
+        self._lidar_distance_cm: Optional[float] = None
+        self._lidar_available: bool = False
+    
+    def update_lidar_distance(self, distance_cm: Optional[float], available: bool = True) -> None:
+        """
+        Update the current LiDAR distance reading.
+        
+        Args:
+            distance_cm: Current LiDAR distance in centimeters, or None if unavailable
+            available: Whether LiDAR sensor is available/connected
+        """
+        self._lidar_distance_cm = distance_cm
+        self._lidar_available = available
     
     def evaluate(
         self,
@@ -245,15 +265,31 @@ class AlertDecisionEngine:
             )
         
         # Check for collision risks (Priority 1)
+        # Requires BOTH vision detection in danger zone AND LiDAR confirmation
         collision_detections = self._check_collision_risks(detections)
         if collision_detections:
-            candidates.append(AlertEvent(
-                alert_type=AlertType.COLLISION_IMMINENT,
-                timestamp=timestamp,
-                confidence=max(d.confidence for d in collision_detections),
-                trigger_source="danger_zone",
-                metadata={"count": len(collision_detections)},
-            ))
+            # Check LiDAR confirmation
+            lidar_confirmed = self._check_lidar_collision()
+            
+            if lidar_confirmed:
+                # Both conditions met - trigger collision alert
+                candidates.append(AlertEvent(
+                    alert_type=AlertType.COLLISION_IMMINENT,
+                    timestamp=timestamp,
+                    confidence=max(d.confidence for d in collision_detections),
+                    trigger_source="vision+lidar",
+                    metadata={
+                        "count": len(collision_detections),
+                        "lidar_distance_cm": self._lidar_distance_cm,
+                    },
+                ))
+            else:
+                # Vision only - log diagnostic but don't alert
+                import logging
+                logging.getLogger(__name__).debug(
+                    f"Collision candidate (vision only): {len(collision_detections)} objects in zone, "
+                    f"LiDAR: {self._lidar_distance_cm}cm (threshold: {self.lidar_threshold_cm}cm)"
+                )
         
         # Check lane departure (Priority 2)
         if lane_departure == "left":
@@ -342,6 +378,37 @@ class AlertDecisionEngine:
                 collision_risks.append(det)
         
         return collision_risks
+    
+    def _check_lidar_collision(self) -> bool:
+        """
+        Check if LiDAR confirms a potential collision.
+        
+        Returns True if:
+        - LiDAR is not required (lidar_required=False), OR
+        - LiDAR is unavailable (fail-safe: allow vision-only), OR
+        - LiDAR distance is below threshold
+        
+        Returns:
+            True if collision is confirmed or LiDAR check should be bypassed
+        """
+        # If LiDAR confirmation not required, always confirm
+        if not self.lidar_required:
+            return True
+        
+        # If LiDAR is not available, fail-safe to vision-only mode
+        if not self._lidar_available:
+            import logging
+            logging.getLogger(__name__).warning(
+                "LiDAR unavailable - collision check using vision only"
+            )
+            return True
+        
+        # If no valid distance reading, don't confirm
+        if self._lidar_distance_cm is None:
+            return False
+        
+        # Check if distance is below threshold
+        return self._lidar_distance_cm <= self.lidar_threshold_cm
     
     def _check_cooldown(self, alert_type: AlertType, current_time: float) -> bool:
         """Check if enough time has passed since last alert of this type."""

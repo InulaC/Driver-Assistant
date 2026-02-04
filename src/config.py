@@ -154,8 +154,31 @@ class IRSensorConfig:
 
 
 @dataclass
+class GPIOLEDConfig:
+    """GPIO status LED configuration."""
+    enabled: bool = True
+    system_led_pin: int = 17  # System running indicator
+    alert_led_pin: int = 27   # Alert active indicator
+
+
+@dataclass
+class LiDARConfig:
+    """TF-Luna LiDAR sensor configuration."""
+    enabled: bool = True
+    port: str = "/dev/ttyAMA0"
+    baud_rate: int = 115200
+    ema_alpha: float = 0.3
+    min_strength: int = 100
+    max_distance_cm: int = 800
+    min_distance_cm: int = 10
+    required_for_collision: bool = True  # Require LiDAR confirmation for collision alerts
+    collision_threshold_cm: int = 300    # Distance threshold (3 meters)
+
+
+@dataclass
 class DisplayConfig:
     """Display overlay configuration."""
+    enabled: bool = True
     window_name: str = "Driver Assistant"
     overlay_alpha: float = 0.6
     bbox_thickness: int = 2
@@ -182,6 +205,8 @@ class Config:
     danger_zone: DangerZoneConfig = field(default_factory=DangerZoneConfig)
     alerts: AlertConfig = field(default_factory=AlertConfig)
     gpio: GPIOConfig = field(default_factory=GPIOConfig)
+    gpio_leds: GPIOLEDConfig = field(default_factory=GPIOLEDConfig)
+    lidar: LiDARConfig = field(default_factory=LiDARConfig)
     ir_sensor: IRSensorConfig = field(default_factory=IRSensorConfig)
     display: DisplayConfig = field(default_factory=DisplayConfig)
     # Store raw config dict for modules that parse their own config
@@ -335,6 +360,30 @@ def load_config(config_path: Optional[str] = None) -> Config:
             buzzer_pin=gpio_data.get("buzzer_pin", 18),
         )
     
+    # Parse GPIO LED config
+    if "gpio_leds" in data:
+        led_data = data["gpio_leds"]
+        config.gpio_leds = GPIOLEDConfig(
+            enabled=led_data.get("enabled", True),
+            system_led_pin=led_data.get("system_led_pin", 17),
+            alert_led_pin=led_data.get("alert_led_pin", 27),
+        )
+    
+    # Parse LiDAR config
+    if "lidar" in data:
+        lidar_data = data["lidar"]
+        config.lidar = LiDARConfig(
+            enabled=lidar_data.get("enabled", True),
+            port=lidar_data.get("port", "/dev/ttyAMA0"),
+            baud_rate=lidar_data.get("baud_rate", 115200),
+            ema_alpha=lidar_data.get("ema_alpha", 0.3),
+            min_strength=lidar_data.get("min_strength", 100),
+            max_distance_cm=lidar_data.get("max_distance_cm", 800),
+            min_distance_cm=lidar_data.get("min_distance_cm", 10),
+            required_for_collision=lidar_data.get("required_for_collision", True),
+            collision_threshold_cm=lidar_data.get("collision_threshold_cm", 300),
+        )
+    
     # Parse IR sensor config
     if "ir_sensor" in data:
         ir_data = data["ir_sensor"]
@@ -352,6 +401,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
         lane_color = disp_data.get("lane_color", [0, 255, 0])
         dz_color = disp_data.get("danger_zone_color", [0, 0, 255])
         config.display = DisplayConfig(
+            enabled=disp_data.get("enabled", True),
             window_name=disp_data.get("window_name", "Driver Assistant"),
             overlay_alpha=disp_data.get("overlay_alpha", 0.6),
             bbox_thickness=disp_data.get("bbox_thickness", 2),

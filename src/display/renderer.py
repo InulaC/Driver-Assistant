@@ -562,6 +562,17 @@ class DisplayRenderer:
             dz_status = "DYNAMIC" if info["danger_zone_dynamic"] else "FIXED"
             lines.append(f"DZ: {dz_status}")
         
+        # LiDAR distance display
+        if "lidar_distance_cm" in info:
+            dist = info["lidar_distance_cm"]
+            if dist is not None:
+                lines.append(f"LiDAR: {dist:.0f}cm")
+            else:
+                lines.append("LiDAR: ---")
+        
+        if "lidar_status" in info:
+            lines.append(f"LiDAR: {info['lidar_status']}")
+        
         # Draw background
         padding = 10
         line_height = 20

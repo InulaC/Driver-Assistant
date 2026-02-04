@@ -92,9 +92,30 @@ alerts:
     stop_sign: sounds/stop_sign.wav
     system_warning: sounds/warning.wav
 
+# GPIO Buzzer (legacy)
 gpio:
   enabled: true
   buzzer_pin: 18
+
+# GPIO Status LEDs
+gpio_leds:
+  enabled: true
+  system_led_pin: 17    # System running indicator (green LED recommended)
+  alert_led_pin: 27     # Alert active indicator (red LED recommended)
+
+# TF-Luna LiDAR Sensor
+lidar:
+  enabled: true
+  port: "/dev/ttyAMA0"  # UART port for TF-Luna
+  baud_rate: 115200
+  ema_alpha: 0.3        # Smoothing factor (0-1, lower = more smoothing)
+  min_strength: 100     # Minimum signal strength for valid reading
+  max_distance_cm: 800  # Maximum valid distance (8 meters)
+  min_distance_cm: 10   # Minimum valid distance (10 cm)
+  
+  # Collision confirmation
+  required_for_collision: true  # If true, collision alerts require LiDAR confirmation
+  collision_threshold_cm: 600   # Distance threshold for collision (6 meters - allows reaction time)
 
 ir_sensor:
   enabled: false
@@ -104,6 +125,7 @@ ir_sensor:
   threshold_cm: 50
 
 display:
+  enabled: true
   window_name: "Driver Assistant"
   overlay_alpha: 0.6
   bbox_thickness: 2

@@ -51,7 +51,8 @@ from src.alerts.gpio_buzzer import create_buzzer_controller
 from src.display import DisplayRenderer, OverlayConfig
 from src.telemetry import TelemetryLogger, FrameMetrics, SystemMetrics
 from src.telemetry.metrics import FPSCounter
-from src.sensors import create_ir_sensor
+from src.sensors import create_ir_sensor, create_lidar
+from src.gpio import create_gpio_controller
 from src.utils.platform import is_raspberry_pi
 from src.overtake import OvertakeAssistant, OvertakeAdvisory, OvertakeStatus
 from src.overtake.assistant import create_overtake_assistant
@@ -118,6 +119,8 @@ class DriverAssistant:
         self._telemetry = None
         self._ir_sensor = None
         self._overtake_assistant = None  # Advisory-only module
+        self._lidar = None               # TF-Luna LiDAR sensor
+        self._gpio_leds = None           # Status LED controller
         
         # Alert persistence for display (survives across skipped frames)
         self._last_display_alert = None
@@ -180,9 +183,19 @@ class DriverAssistant:
         # 10. Initialize Overtake Assistant (advisory-only module)
         self._setup_overtake_assistant()
         
+        # 11. Initialize LiDAR sensor (TF-Luna)
+        self._setup_lidar()
+        
+        # 12. Initialize GPIO status LEDs
+        self._setup_gpio_leds()
+        
         logger.info("=" * 60)
         logger.info("System initialization complete")
         logger.info("=" * 60)
+        
+        # Turn on system LED to indicate successful initialization
+        if self._gpio_leds and self._gpio_leds.is_available:
+            self._gpio_leds.set_system_led(True)
         
         return True
     
@@ -338,6 +351,37 @@ class DriverAssistant:
             from src.overtake.assistant import OvertakeConfig
             self._overtake_assistant = OvertakeAssistant(OvertakeConfig(enabled=False))
     
+    def _setup_lidar(self) -> None:
+        """Initialize TF-Luna LiDAR sensor for distance measurement."""
+        self._lidar = create_lidar(
+            port=self._config.lidar.port,
+            baud_rate=self._config.lidar.baud_rate,
+            max_distance_cm=self._config.lidar.max_distance_cm,
+            min_distance_cm=self._config.lidar.min_distance_cm,
+            ema_alpha=self._config.lidar.ema_alpha,
+            min_strength=self._config.lidar.min_strength,
+            enabled=self._config.lidar.enabled,
+        )
+        
+        if self._lidar.connect():
+            self._lidar.start()
+            logger.info("TF-Luna LiDAR initialized")
+        else:
+            logger.info("LiDAR not available")
+    
+    def _setup_gpio_leds(self) -> None:
+        """Initialize GPIO status LEDs."""
+        self._gpio_leds = create_gpio_controller(
+            system_pin=self._config.gpio_leds.system_led_pin,
+            alert_pin=self._config.gpio_leds.alert_led_pin,
+            enabled=self._config.gpio_leds.enabled,
+        )
+        
+        if self._gpio_leds.initialize():
+            logger.info("GPIO status LEDs initialized")
+        else:
+            logger.info("GPIO LEDs not available")
+    
     def run(self) -> None:
         """
         Run the main processing loop.
@@ -454,6 +498,15 @@ class DriverAssistant:
         )
         
         # =====================================================================
+        # Stage 6.6: LiDAR Distance Update
+        # =====================================================================
+        # Update decision engine with current LiDAR distance for collision confirmation
+        if self._lidar is not None:
+            lidar_reading = self._lidar.get_reading()
+            if lidar_reading and lidar_reading.valid:
+                self._decision_engine.update_lidar_distance(lidar_reading.distance_cm)
+        
+        # =====================================================================
         # Stage 7: Alert Decision
         # =====================================================================
         decision_start = time.monotonic()
@@ -472,6 +525,13 @@ class DriverAssistant:
             self._dispatch_alert(alert)
             metrics.alert_latency_ms = (time.monotonic() - alert_start) * 1000
             metrics.alert_type = alert.alert_type.value
+        
+        # =====================================================================
+        # Stage 8.5: GPIO Alert LED Update
+        # =====================================================================
+        # Turn on alert LED when alert is active, off when no alert
+        if self._gpio_leds is not None:
+            self._gpio_leds.set_alert_led(alert is not None)
         
         # =====================================================================
         # Stage 9: Alert Persistence for Display
@@ -670,6 +730,12 @@ class DriverAssistant:
             "danger_zone_dynamic": self._decision_engine.danger_zone.is_dynamic,
         }
         
+        # Add LiDAR distance to info if available
+        if self._lidar is not None:
+            lidar_reading = self._lidar.get_reading()
+            if lidar_reading and lidar_reading.valid:
+                info["lidar_distance_cm"] = lidar_reading.distance_cm
+        
         # Render frame with overlays
         output = self._display.render(
             frame=frame.data,
@@ -690,6 +756,16 @@ class DriverAssistant:
         logger.info("Cleaning up...")
         
         self._running = False
+        
+        # Turn off system LED when shutting down
+        if self._gpio_leds:
+            self._gpio_leds.set_system_led(False)
+            self._gpio_leds.set_alert_led(False)
+            self._gpio_leds.cleanup()
+        
+        if self._lidar:
+            self._lidar.stop()
+            self._lidar.disconnect()
         
         if self._ir_sensor:
             self._ir_sensor.cleanup()
