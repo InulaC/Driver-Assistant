@@ -37,9 +37,9 @@ ALERT_PATTERNS = {
     AlertType.COLLISION_IMMINENT: BuzzerPattern.CONTINUOUS,
     AlertType.LANE_DEPARTURE_LEFT: BuzzerPattern.SHORT_BEEPS,
     AlertType.LANE_DEPARTURE_RIGHT: BuzzerPattern.SHORT_BEEPS,
-    AlertType.TRAFFIC_LIGHT_DETECTED: BuzzerPattern.LONG_BEEPS,
+    AlertType.TRAFFIC_LIGHT_RED: BuzzerPattern.LONG_BEEPS,
+    AlertType.TRAFFIC_LIGHT_YELLOW: BuzzerPattern.SHORT_BEEPS,
     AlertType.STOP_SIGN: BuzzerPattern.LONG_BEEPS,
-    AlertType.ANIMAL_WARNING: BuzzerPattern.ALTERNATING,
     AlertType.SYSTEM_WARNING: BuzzerPattern.LONG_BEEPS,
 }
 

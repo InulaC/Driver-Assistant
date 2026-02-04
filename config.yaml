@@ -21,12 +21,19 @@ yolo:
   iou_threshold: 0.45
   frame_skip: 5
   cache_ttl_ms: 500
+  # Custom model classes:
+  # 0: biker, 1: car, 2: pedestrian, 3: trafficLight (generic),
+  # 4: trafficLight-Green, 5: trafficLight-GreenLeft (ignored),
+  # 6: trafficLight-Red, 7: trafficLight-RedLeft (ignored),
+  # 8: trafficLight-Yellow, 9: trafficLight-YellowLeft (ignored), 10: truck
   classes:
-    - traffic_light
-    - stop_sign
+    - biker
+    - car
     - pedestrian
-    - vehicle
-    - animal
+    - traffic_light_green
+    - traffic_light_red
+    - traffic_light_yellow
+    - truck
 
 lane_detection:
   roi_top_ratio: 0.625
@@ -80,9 +87,9 @@ alerts:
     collision: sounds/collision.wav
     lane_left: sounds/lane_left.wav
     lane_right: sounds/lane_right.wav
-    traffic_light: sounds/traffic_light.wav
+    red_light: sounds/red_light.wav
+    yellow_light: sounds/yellow_light.wav
     stop_sign: sounds/stop_sign.wav
-    animal: sounds/animal.wav
     system_warning: sounds/warning.wav
 
 gpio:

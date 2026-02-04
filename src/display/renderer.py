@@ -55,11 +55,14 @@ class OverlayConfig:
     def __post_init__(self):
         if self.detection_colors is None:
             self.detection_colors = {
-                DetectionLabel.TRAFFIC_LIGHT: (0, 255, 255),  # Yellow
-                DetectionLabel.STOP_SIGN: (0, 0, 255),        # Red
-                DetectionLabel.PEDESTRIAN: (255, 0, 0),       # Blue
-                DetectionLabel.VEHICLE: (0, 255, 0),          # Green
-                DetectionLabel.ANIMAL: (255, 0, 255),         # Magenta
+                DetectionLabel.TRAFFIC_LIGHT_RED: (0, 0, 255),    # Red
+                DetectionLabel.TRAFFIC_LIGHT_YELLOW: (0, 255, 255),  # Yellow
+                DetectionLabel.TRAFFIC_LIGHT_GREEN: (0, 255, 0),  # Green
+                DetectionLabel.TRAFFIC_LIGHT: (0, 200, 200),      # Generic light
+                DetectionLabel.STOP_SIGN: (0, 0, 200),            # Dark Red
+                DetectionLabel.PEDESTRIAN: (255, 0, 0),           # Blue
+                DetectionLabel.VEHICLE: (0, 200, 0),              # Green
+                DetectionLabel.BIKER: (255, 165, 0),              # Orange
             }
 
 
@@ -68,9 +71,9 @@ ALERT_COLORS = {
     AlertType.COLLISION_IMMINENT: (0, 0, 255),      # Red
     AlertType.LANE_DEPARTURE_LEFT: (0, 165, 255),   # Orange
     AlertType.LANE_DEPARTURE_RIGHT: (0, 165, 255),  # Orange
-    AlertType.TRAFFIC_LIGHT_DETECTED: (0, 200, 255),  # Yellow/amber
+    AlertType.TRAFFIC_LIGHT_RED: (0, 0, 255),       # Red
+    AlertType.TRAFFIC_LIGHT_YELLOW: (0, 255, 255),  # Yellow
     AlertType.STOP_SIGN: (0, 0, 200),               # Dark red
-    AlertType.ANIMAL_WARNING: (255, 0, 255),        # Magenta
     AlertType.SYSTEM_WARNING: (128, 128, 128),      # Gray
 }
 

@@ -10,9 +10,9 @@ class AlertType(Enum):
     COLLISION_IMMINENT = "collision_imminent"      # Priority 1 - Highest
     LANE_DEPARTURE_LEFT = "lane_departure_left"    # Priority 2
     LANE_DEPARTURE_RIGHT = "lane_departure_right"  # Priority 2
-    TRAFFIC_LIGHT_DETECTED = "traffic_light_detected"  # Priority 3 - Generic
+    TRAFFIC_LIGHT_RED = "traffic_light_red"        # Priority 2 - Red light warning
+    TRAFFIC_LIGHT_YELLOW = "traffic_light_yellow"  # Priority 3 - Yellow light caution
     STOP_SIGN = "stop_sign"                        # Priority 3
-    ANIMAL_WARNING = "animal_warning"              # Priority 2
     SYSTEM_WARNING = "system_warning"              # Priority 4 - Lowest
     
     @property
@@ -22,8 +22,8 @@ class AlertType(Enum):
             AlertType.COLLISION_IMMINENT: 1,
             AlertType.LANE_DEPARTURE_LEFT: 2,
             AlertType.LANE_DEPARTURE_RIGHT: 2,
-            AlertType.ANIMAL_WARNING: 2,
-            AlertType.TRAFFIC_LIGHT_DETECTED: 3,
+            AlertType.TRAFFIC_LIGHT_RED: 2,
+            AlertType.TRAFFIC_LIGHT_YELLOW: 3,
             AlertType.STOP_SIGN: 3,
             AlertType.SYSTEM_WARNING: 4,
         }
@@ -36,9 +36,9 @@ class AlertType(Enum):
             AlertType.COLLISION_IMMINENT: "COLLISION WARNING",
             AlertType.LANE_DEPARTURE_LEFT: "LANE DEPARTURE LEFT",
             AlertType.LANE_DEPARTURE_RIGHT: "LANE DEPARTURE RIGHT",
-            AlertType.TRAFFIC_LIGHT_DETECTED: "TRAFFIC LIGHT DETECTED",
+            AlertType.TRAFFIC_LIGHT_RED: "RED LIGHT",
+            AlertType.TRAFFIC_LIGHT_YELLOW: "YELLOW LIGHT",
             AlertType.STOP_SIGN: "STOP SIGN",
-            AlertType.ANIMAL_WARNING: "ANIMAL WARNING",
             AlertType.SYSTEM_WARNING: "SYSTEM WARNING",
         }
         return names.get(self, self.value)

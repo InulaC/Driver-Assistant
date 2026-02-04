@@ -25,11 +25,14 @@ from src.detection import YOLODetector, Detection, DetectionLabel
 
 # Colors for different detection types (BGR format)
 LABEL_COLORS = {
-    DetectionLabel.TRAFFIC_LIGHT: (0, 255, 255),  # Yellow
-    DetectionLabel.STOP_SIGN: (0, 0, 255),        # Red
-    DetectionLabel.PEDESTRIAN: (255, 0, 0),       # Blue
-    DetectionLabel.VEHICLE: (0, 255, 0),          # Green
-    DetectionLabel.ANIMAL: (255, 0, 255),         # Magenta
+    DetectionLabel.TRAFFIC_LIGHT_RED: (0, 0, 255),    # Red
+    DetectionLabel.TRAFFIC_LIGHT_YELLOW: (0, 255, 255),  # Yellow
+    DetectionLabel.TRAFFIC_LIGHT_GREEN: (0, 255, 0),  # Green
+    DetectionLabel.TRAFFIC_LIGHT: (0, 200, 200),      # Generic light
+    DetectionLabel.STOP_SIGN: (0, 0, 200),            # Dark Red
+    DetectionLabel.PEDESTRIAN: (255, 0, 0),           # Blue
+    DetectionLabel.VEHICLE: (0, 200, 0),              # Green
+    DetectionLabel.BIKER: (255, 165, 0),              # Orange
 }
 
 

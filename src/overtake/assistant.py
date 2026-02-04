@@ -296,7 +296,8 @@ class OvertakeAssistant:
         """Count vehicles detected within the clearance zone."""
         count = 0
         for det in detections:
-            if det.label != DetectionLabel.VEHICLE:
+            # Count vehicles and bikers as obstacles
+            if det.label not in (DetectionLabel.VEHICLE, DetectionLabel.BIKER):
                 continue
             
             if bbox_intersects_zone(det.bbox, clearance_zone):

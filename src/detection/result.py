@@ -11,34 +11,66 @@ from enum import Enum
 
 class DetectionLabel(Enum):
     """Valid detection labels for the safety system."""
-    TRAFFIC_LIGHT = "traffic_light"
+    # Traffic lights by color
+    TRAFFIC_LIGHT_RED = "traffic_light_red"
+    TRAFFIC_LIGHT_YELLOW = "traffic_light_yellow"
+    TRAFFIC_LIGHT_GREEN = "traffic_light_green"
+    TRAFFIC_LIGHT = "traffic_light"  # Generic (no color info)
+    
+    # Other signals
     STOP_SIGN = "stop_sign"
+    
+    # Obstacles
     PEDESTRIAN = "pedestrian"
     VEHICLE = "vehicle"
-    ANIMAL = "animal"
+    BIKER = "biker"  # Cyclists/motorcyclists
     
     @classmethod
     def from_string(cls, label: str) -> Optional["DetectionLabel"]:
         """Convert string label to enum."""
         label_map = {
+            "traffic_light_red": cls.TRAFFIC_LIGHT_RED,
+            "traffic_light_yellow": cls.TRAFFIC_LIGHT_YELLOW,
+            "traffic_light_green": cls.TRAFFIC_LIGHT_GREEN,
             "traffic_light": cls.TRAFFIC_LIGHT,
+            "trafficlight-red": cls.TRAFFIC_LIGHT_RED,
+            "trafficlight-yellow": cls.TRAFFIC_LIGHT_YELLOW,
+            "trafficlight-green": cls.TRAFFIC_LIGHT_GREEN,
+            "trafficlight": cls.TRAFFIC_LIGHT,
             "stop_sign": cls.STOP_SIGN,
             "pedestrian": cls.PEDESTRIAN,
             "vehicle": cls.VEHICLE,
-            "animal": cls.ANIMAL,
+            "biker": cls.BIKER,
+            "car": cls.VEHICLE,
+            "truck": cls.VEHICLE,
         }
-        return label_map.get(label.lower())
+        return label_map.get(label.lower().replace(" ", ""))
     
     def is_traffic_signal(self) -> bool:
         """Check if this detection is a traffic signal/sign."""
-        return self in (DetectionLabel.TRAFFIC_LIGHT, DetectionLabel.STOP_SIGN)
+        return self in (
+            DetectionLabel.TRAFFIC_LIGHT,
+            DetectionLabel.TRAFFIC_LIGHT_RED,
+            DetectionLabel.TRAFFIC_LIGHT_YELLOW,
+            DetectionLabel.TRAFFIC_LIGHT_GREEN,
+            DetectionLabel.STOP_SIGN,
+        )
+    
+    def is_traffic_light(self) -> bool:
+        """Check if this is any type of traffic light."""
+        return self in (
+            DetectionLabel.TRAFFIC_LIGHT,
+            DetectionLabel.TRAFFIC_LIGHT_RED,
+            DetectionLabel.TRAFFIC_LIGHT_YELLOW,
+            DetectionLabel.TRAFFIC_LIGHT_GREEN,
+        )
     
     def is_obstacle(self) -> bool:
         """Check if this detection is a collision obstacle."""
         return self in (
             DetectionLabel.PEDESTRIAN,
             DetectionLabel.VEHICLE,
-            DetectionLabel.ANIMAL,
+            DetectionLabel.BIKER,
         )
 
 

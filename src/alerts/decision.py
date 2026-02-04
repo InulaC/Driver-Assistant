@@ -255,17 +255,6 @@ class AlertDecisionEngine:
                 metadata={"count": len(collision_detections)},
             ))
         
-        # Check for animal warnings (Priority 2)
-        animals = [d for d in detections if d.label == DetectionLabel.ANIMAL 
-                   and d.confidence >= self.confidence_threshold]
-        if animals:
-            candidates.append(AlertEvent(
-                alert_type=AlertType.ANIMAL_WARNING,
-                timestamp=timestamp,
-                confidence=max(a.confidence for a in animals),
-                trigger_source="detection",
-            ))
-        
         # Check lane departure (Priority 2)
         if lane_departure == "left":
             candidates.append(AlertEvent(
@@ -280,16 +269,27 @@ class AlertDecisionEngine:
                 trigger_source="lane_detection",
             ))
         
-        # Check traffic signals (Priority 3) - single generic alert
-        traffic_lights = [d for d in detections if d.label == DetectionLabel.TRAFFIC_LIGHT
-                         and d.confidence >= self.confidence_threshold]
-        if traffic_lights:
-            # Check traffic light specific cooldown before adding candidate
+        # Check red traffic lights (Priority 2)
+        red_lights = [d for d in detections if d.label == DetectionLabel.TRAFFIC_LIGHT_RED
+                      and d.confidence >= self.confidence_threshold]
+        if red_lights:
             if self._check_traffic_light_cooldown(timestamp):
                 candidates.append(AlertEvent(
-                    alert_type=AlertType.TRAFFIC_LIGHT_DETECTED,
+                    alert_type=AlertType.TRAFFIC_LIGHT_RED,
                     timestamp=timestamp,
-                    confidence=max(t.confidence for t in traffic_lights),
+                    confidence=max(t.confidence for t in red_lights),
+                    trigger_source="detection",
+                ))
+        
+        # Check yellow traffic lights (Priority 3)
+        yellow_lights = [d for d in detections if d.label == DetectionLabel.TRAFFIC_LIGHT_YELLOW
+                         and d.confidence >= self.confidence_threshold]
+        if yellow_lights:
+            if self._check_traffic_light_cooldown(timestamp):
+                candidates.append(AlertEvent(
+                    alert_type=AlertType.TRAFFIC_LIGHT_YELLOW,
+                    timestamp=timestamp,
+                    confidence=max(t.confidence for t in yellow_lights),
                     trigger_source="detection",
                 ))
         
@@ -327,8 +327,8 @@ class AlertDecisionEngine:
         collision_risks = []
         
         for det in detections:
-            # Only check pedestrians, vehicles, and animals
-            if det.label not in (DetectionLabel.PEDESTRIAN, DetectionLabel.VEHICLE, DetectionLabel.ANIMAL):
+            # Only check pedestrians, vehicles, and bikers
+            if det.label not in (DetectionLabel.PEDESTRIAN, DetectionLabel.VEHICLE, DetectionLabel.BIKER):
                 continue
             
             if det.confidence < self.confidence_threshold:
@@ -351,15 +351,26 @@ class AlertDecisionEngine:
         
         elapsed_ms = (current_time - last_time) * 1000
         
-        # Traffic light has its own cooldown
-        if alert_type == AlertType.TRAFFIC_LIGHT_DETECTED:
+        # Traffic lights have their own cooldown
+        if alert_type in (AlertType.TRAFFIC_LIGHT_RED, AlertType.TRAFFIC_LIGHT_YELLOW):
             return elapsed_ms >= self.traffic_light_cooldown_ms
         
         return elapsed_ms >= self.cooldown_ms
     
     def _check_traffic_light_cooldown(self, current_time: float) -> bool:
-        """Check if traffic light cooldown has elapsed (separate from other alerts)."""
-        last_time = self._last_alert_time.get(AlertType.TRAFFIC_LIGHT_DETECTED)
+        """Check if traffic light cooldown has elapsed (shared between red/yellow)."""
+        # Check both red and yellow cooldowns
+        last_red = self._last_alert_time.get(AlertType.TRAFFIC_LIGHT_RED)
+        last_yellow = self._last_alert_time.get(AlertType.TRAFFIC_LIGHT_YELLOW)
+        
+        last_time = None
+        if last_red and last_yellow:
+            last_time = max(last_red, last_yellow)
+        elif last_red:
+            last_time = last_red
+        elif last_yellow:
+            last_time = last_yellow
+        
         if last_time is None:
             return True
         

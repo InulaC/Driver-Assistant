@@ -34,15 +34,15 @@ class AudioAlertManager:
         AlertType.LANE_DEPARTURE_RIGHT: [
             (1000, 200), (0, 100), (1000, 200), (0, 100), (1000, 200)
         ],  # Three medium beeps
-        AlertType.TRAFFIC_LIGHT_DETECTED: [
-            (800, 500), (0, 200), (800, 500)
-        ],  # Two long low beeps
+        AlertType.TRAFFIC_LIGHT_RED: [
+            (1500, 400), (0, 100), (1500, 400)
+        ],  # Two high warning beeps for red light
+        AlertType.TRAFFIC_LIGHT_YELLOW: [
+            (1000, 300), (0, 150), (1000, 300)
+        ],  # Two medium beeps for yellow caution
         AlertType.STOP_SIGN: [
             (600, 300), (0, 100), (600, 300)
         ],  # Two low beeps
-        AlertType.ANIMAL_WARNING: [
-            (1500, 200), (1200, 200), (1500, 200)
-        ],  # Alternating beeps
         AlertType.SYSTEM_WARNING: [
             (500, 1000)
         ],  # Single long low beep
