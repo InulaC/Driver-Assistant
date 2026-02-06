@@ -329,6 +329,18 @@ class AlertDecisionEngine:
                     trigger_source="detection",
                 ))
         
+        # Check green traffic lights (Priority 4)
+        green_lights = [d for d in detections if d.label == DetectionLabel.TRAFFIC_LIGHT_GREEN
+                        and d.confidence >= self.confidence_threshold]
+        if green_lights:
+            if self._check_traffic_light_cooldown(timestamp):
+                candidates.append(AlertEvent(
+                    alert_type=AlertType.TRAFFIC_LIGHT_GREEN,
+                    timestamp=timestamp,
+                    confidence=max(t.confidence for t in green_lights),
+                    trigger_source="detection",
+                ))
+        
         # Check stop signs (Priority 3)
         stop_signs = [d for d in detections if d.label == DetectionLabel.STOP_SIGN
                       and d.confidence >= self.confidence_threshold]
@@ -419,28 +431,23 @@ class AlertDecisionEngine:
         elapsed_ms = (current_time - last_time) * 1000
         
         # Traffic lights have their own cooldown
-        if alert_type in (AlertType.TRAFFIC_LIGHT_RED, AlertType.TRAFFIC_LIGHT_YELLOW):
+        if alert_type in (AlertType.TRAFFIC_LIGHT_RED, AlertType.TRAFFIC_LIGHT_YELLOW, AlertType.TRAFFIC_LIGHT_GREEN):
             return elapsed_ms >= self.traffic_light_cooldown_ms
-        
+
         return elapsed_ms >= self.cooldown_ms
     
     def _check_traffic_light_cooldown(self, current_time: float) -> bool:
-        """Check if traffic light cooldown has elapsed (shared between red/yellow)."""
-        # Check both red and yellow cooldowns
+        """Check if traffic light cooldown has elapsed (shared between red/yellow/green)."""
+        # Check all traffic light cooldowns
         last_red = self._last_alert_time.get(AlertType.TRAFFIC_LIGHT_RED)
         last_yellow = self._last_alert_time.get(AlertType.TRAFFIC_LIGHT_YELLOW)
+        last_green = self._last_alert_time.get(AlertType.TRAFFIC_LIGHT_GREEN)
         
-        last_time = None
-        if last_red and last_yellow:
-            last_time = max(last_red, last_yellow)
-        elif last_red:
-            last_time = last_red
-        elif last_yellow:
-            last_time = last_yellow
-        
-        if last_time is None:
+        times = [t for t in [last_red, last_yellow, last_green] if t is not None]
+        if not times:
             return True
         
+        last_time = max(times)
         elapsed_ms = (current_time - last_time) * 1000
         return elapsed_ms >= self.traffic_light_cooldown_ms
     

@@ -73,6 +73,7 @@ ALERT_COLORS = {
     AlertType.LANE_DEPARTURE_RIGHT: (0, 165, 255),  # Orange
     AlertType.TRAFFIC_LIGHT_RED: (0, 0, 255),       # Red
     AlertType.TRAFFIC_LIGHT_YELLOW: (0, 255, 255),  # Yellow
+    AlertType.TRAFFIC_LIGHT_GREEN: (0, 255, 0),     # Green
     AlertType.STOP_SIGN: (0, 0, 200),               # Dark red
     AlertType.SYSTEM_WARNING: (128, 128, 128),      # Gray
 }

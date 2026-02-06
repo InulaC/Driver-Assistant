@@ -40,6 +40,9 @@ class AudioAlertManager:
         AlertType.TRAFFIC_LIGHT_YELLOW: [
             (1000, 300), (0, 150), (1000, 300)
         ],  # Two medium beeps for yellow caution
+        AlertType.TRAFFIC_LIGHT_GREEN: [
+            (800, 200), (0, 100), (1200, 200)
+        ],  # Ascending tone for green light - distinct from others
         AlertType.STOP_SIGN: [
             (600, 300), (0, 100), (600, 300)
         ],  # Two low beeps
