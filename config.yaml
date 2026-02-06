@@ -81,7 +81,7 @@ danger_zone:
 
 alerts:
   cooldown_ms: 300
-  traffic_light_cooldown_ms: 15000  # Separate longer cooldown for traffic light alerts
+  traffic_light_cooldown_ms: 1000  # Separate longer cooldown for traffic light alerts
   alert_hold_frames: 5  # How many frames to keep showing an alert on display
   traffic_light_display_hold_s: 4.0  # How long to show traffic light visual on screen (seconds)
   sounds:
