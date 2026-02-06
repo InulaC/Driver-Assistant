@@ -4,12 +4,16 @@ Polynomial fitting for lane lines.
 Fits second-order polynomials to lane line points.
 """
 
+import warnings
 import numpy as np
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 
 from src.lane.hough_lines import LineSegment
 from src.lane.result import LanePolynomial
+
+# Suppress numpy polyfit warnings (poorly conditioned fits are handled gracefully)
+warnings.filterwarnings('ignore', message='Polyfit may be poorly conditioned')
 
 
 class PolynomialFitter:

@@ -81,9 +81,9 @@ danger_zone:
 
 alerts:
   cooldown_ms: 300
-  traffic_light_cooldown_ms: 25000  # Separate longer cooldown for traffic light alerts
+  traffic_light_cooldown_ms: 15000  # Separate longer cooldown for traffic light alerts
   alert_hold_frames: 5  # How many frames to keep showing an alert on display
-  traffic_light_display_hold_s: 2.0  # How long to show traffic light visual on screen (seconds)
+  traffic_light_display_hold_s: 4.0  # How long to show traffic light visual on screen (seconds)
   sounds:
     collision: sounds/collision.wav
     lane_left: sounds/lane_left.wav
@@ -134,6 +134,7 @@ display:
   lane_color: [0, 255, 0]
   danger_zone_color: [0, 0, 255]
   font_scale: 0.6
+  show_bbox_labels: true  # Hide text labels on bounding boxes for cleaner look
 
 # Overtake Assistant - Advisory Only Module
 # DISCLAIMER: This is NOT a safety system. Never rely on it for driving decisions.

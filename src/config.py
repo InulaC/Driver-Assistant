@@ -187,6 +187,7 @@ class DisplayConfig:
     lane_color: Tuple[int, int, int] = (0, 255, 0)
     danger_zone_color: Tuple[int, int, int] = (0, 0, 255)
     font_scale: float = 0.6
+    show_bbox_labels: bool = True  # Show text labels on bounding boxes
 
 
 @dataclass 
@@ -412,6 +413,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
             lane_color=tuple(lane_color),
             danger_zone_color=tuple(dz_color),
             font_scale=disp_data.get("font_scale", 0.6),
+            show_bbox_labels=disp_data.get("show_bbox_labels", True),
         )
     
     # Store raw config for modules that parse their own config

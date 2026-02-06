@@ -125,6 +125,7 @@ class DriverAssistant:
         # Alert persistence for display (survives across skipped frames)
         self._last_display_alert = None
         self._alert_hold_counter = 0
+        self._traffic_light_alert_until = 0.0  # Time-based hold for traffic light alerts
         
         # Traffic light visual persistence (separate from alerts)
         self._last_traffic_light_detection = None  # Detection object
@@ -300,6 +301,7 @@ class DriverAssistant:
             danger_zone_color=self._config.display.danger_zone_color,
             bbox_thickness=self._config.display.bbox_thickness,
             font_scale=self._config.display.font_scale,
+            show_bbox_labels=self._config.display.show_bbox_labels,
         )
         
         self._display = DisplayRenderer(overlay_config)
@@ -651,8 +653,10 @@ class DriverAssistant:
         """
         Get the alert to display, implementing alert persistence across frames.
         
-        When a new alert fires, it's stored and shown for `alert_hold_frames` frames.
-        This ensures alerts remain visible even during YOLO frame skipping.
+        - Traffic light alerts use time-based hold (`traffic_light_display_hold_s`)
+        - Other alerts use frame-based hold (`alert_hold_frames`)
+        
+        This ensures traffic light alerts remain visible for the configured duration.
         
         Args:
             current_alert: The alert from current frame's evaluation (may be None)
@@ -660,16 +664,47 @@ class DriverAssistant:
         Returns:
             Alert to display (either new alert or held previous alert)
         """
+        now = time.monotonic()
+        
         if current_alert is not None:
-            # New alert - reset counter and store it
+            # New alert - store it and set appropriate hold
             self._last_display_alert = current_alert
-            self._alert_hold_counter = self._config.alerts.alert_hold_frames
+            
+            # Check if this is a traffic light alert
+            is_traffic_light = current_alert.alert_type in (
+                AlertType.TRAFFIC_LIGHT_RED,
+                AlertType.TRAFFIC_LIGHT_YELLOW,
+                AlertType.TRAFFIC_LIGHT_GREEN,
+            )
+            
+            if is_traffic_light:
+                # Use time-based hold for traffic lights
+                hold_duration = self._config.alerts.traffic_light_display_hold_s
+                self._traffic_light_alert_until = now + hold_duration
+                self._alert_hold_counter = 0  # Don't use frame-based for traffic lights
+            else:
+                # Use frame-based hold for other alerts
+                self._alert_hold_counter = self._config.alerts.alert_hold_frames
+                self._traffic_light_alert_until = 0.0
+            
             return current_alert
         
         # No new alert - check if we should keep showing the previous one
-        if self._alert_hold_counter > 0 and self._last_display_alert is not None:
-            self._alert_hold_counter -= 1
-            return self._last_display_alert
+        if self._last_display_alert is not None:
+            # Check if it's a traffic light with time-based hold
+            is_traffic_light = self._last_display_alert.alert_type in (
+                AlertType.TRAFFIC_LIGHT_RED,
+                AlertType.TRAFFIC_LIGHT_YELLOW,
+                AlertType.TRAFFIC_LIGHT_GREEN,
+            )
+            
+            if is_traffic_light and now < self._traffic_light_alert_until:
+                # Still within time-based hold period
+                return self._last_display_alert
+            elif not is_traffic_light and self._alert_hold_counter > 0:
+                # Still within frame-based hold period
+                self._alert_hold_counter -= 1
+                return self._last_display_alert
         
         # Hold period expired, clear the stored alert
         self._last_display_alert = None

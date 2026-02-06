@@ -48,6 +48,7 @@ class OverlayConfig:
     lane_thickness: int = 3
     font_scale: float = 0.6
     font_thickness: int = 1
+    show_bbox_labels: bool = True  # Show text labels on bounding boxes
     
     # Alert banner
     banner_height: int = 50
@@ -468,31 +469,32 @@ class DisplayRenderer:
             # Draw bounding box
             cv2.rectangle(output, (x1, y1), (x2, y2), color, thickness)
             
-            # Draw label
-            label = f"{det.class_name}: {det.confidence:.2f}"
-            if in_danger:
-                label = "! " + label
-            
-            (tw, th), _ = cv2.getTextSize(
-                label,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                self._config.font_scale,
-                self._config.font_thickness,
-            )
-            
-            # Label background
-            cv2.rectangle(output, (x1, y1 - th - 8), (x1 + tw + 4, y1), color, -1)
-            
-            # Label text
-            cv2.putText(
-                output,
-                label,
-                (x1 + 2, y1 - 4),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                self._config.font_scale,
-                (0, 0, 0),
-                self._config.font_thickness,
-            )
+            # Draw label (if enabled)
+            if self._config.show_bbox_labels:
+                label = f"{det.class_name}: {det.confidence:.2f}"
+                if in_danger:
+                    label = "! " + label
+                
+                (tw, th), _ = cv2.getTextSize(
+                    label,
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    self._config.font_scale,
+                    self._config.font_thickness,
+                )
+                
+                # Label background
+                cv2.rectangle(output, (x1, y1 - th - 8), (x1 + tw + 4, y1), color, -1)
+                
+                # Label text
+                cv2.putText(
+                    output,
+                    label,
+                    (x1 + 2, y1 - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    self._config.font_scale,
+                    (0, 0, 0),
+                    self._config.font_thickness,
+                )
         
         return output
     
