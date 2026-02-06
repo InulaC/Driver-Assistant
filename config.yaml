@@ -83,6 +83,7 @@ alerts:
   cooldown_ms: 300
   traffic_light_cooldown_ms: 25000  # Separate longer cooldown for traffic light alerts
   alert_hold_frames: 5  # How many frames to keep showing an alert on display
+  traffic_light_display_hold_s: 2.0  # How long to show traffic light visual on screen (seconds)
   sounds:
     collision: sounds/collision.wav
     lane_left: sounds/lane_left.wav
@@ -102,6 +103,7 @@ gpio_leds:
   enabled: true
   system_led_pin: 17    # System running indicator (green LED recommended)
   alert_led_pin: 27     # Alert active indicator (red LED recommended)
+  collision_output_pin: 22  # HIGH when collision/object detected (for external systems)
 
 # TF-Luna LiDAR Sensor
 lidar:

@@ -133,6 +133,7 @@ class AlertConfig:
     cooldown_ms: int = 300
     traffic_light_cooldown_ms: int = 5000  # Separate cooldown for traffic lights
     alert_hold_frames: int = 5  # How many frames to keep showing an alert after it triggers
+    traffic_light_display_hold_s: float = 2.0  # How long to show traffic light visual (seconds)
     sounds: AlertSoundsConfig = field(default_factory=AlertSoundsConfig)
 
 
@@ -159,6 +160,7 @@ class GPIOLEDConfig:
     enabled: bool = True
     system_led_pin: int = 17  # System running indicator
     alert_led_pin: int = 27   # Alert active indicator
+    collision_output_pin: int = 22  # HIGH when collision/object detected
 
 
 @dataclass
@@ -341,6 +343,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
             cooldown_ms=alert_data.get("cooldown_ms", 300),
             traffic_light_cooldown_ms=alert_data.get("traffic_light_cooldown_ms", 5000),
             alert_hold_frames=alert_data.get("alert_hold_frames", 5),
+            traffic_light_display_hold_s=alert_data.get("traffic_light_display_hold_s", 2.0),
             sounds=AlertSoundsConfig(
                 collision=sounds_data.get("collision", "sounds/collision.wav"),
                 lane_left=sounds_data.get("lane_left", "sounds/lane_left.wav"),
@@ -367,6 +370,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
             enabled=led_data.get("enabled", True),
             system_led_pin=led_data.get("system_led_pin", 17),
             alert_led_pin=led_data.get("alert_led_pin", 27),
+            collision_output_pin=led_data.get("collision_output_pin", 22),
         )
     
     # Parse LiDAR config

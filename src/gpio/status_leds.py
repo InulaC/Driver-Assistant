@@ -60,6 +60,7 @@ class GPIOStatusController:
         self,
         system_pin: int = 17,
         alert_pin: int = 27,
+        collision_output_pin: int = 22,
         enabled: bool = True,
         blink_slow_hz: float = 1.0,
         blink_fast_hz: float = 4.0,
@@ -70,12 +71,14 @@ class GPIOStatusController:
         Args:
             system_pin: BCM pin number for system LED
             alert_pin: BCM pin number for alert LED
+            collision_output_pin: BCM pin number for collision output (HIGH when object detected)
             enabled: If False, all operations are no-ops
             blink_slow_hz: Slow blink frequency
             blink_fast_hz: Fast blink frequency
         """
         self.system_pin = system_pin
         self.alert_pin = alert_pin
+        self.collision_output_pin = collision_output_pin
         self.enabled = enabled
         self.blink_slow_period = 1.0 / blink_slow_hz
         self.blink_fast_period = 1.0 / blink_fast_hz
@@ -85,6 +88,7 @@ class GPIOStatusController:
         self._initialized = False
         self._system_state = LEDState.OFF
         self._alert_state = LEDState.OFF
+        self._collision_output_state = False
         
         # Blink thread
         self._blink_running = False
@@ -118,13 +122,14 @@ class GPIOStatusController:
             # Setup output pins
             GPIO.setup(self.system_pin, GPIO.OUT, initial=GPIO.LOW)
             GPIO.setup(self.alert_pin, GPIO.OUT, initial=GPIO.LOW)
+            GPIO.setup(self.collision_output_pin, GPIO.OUT, initial=GPIO.LOW)
             
             self._initialized = True
             
             # Start blink thread
             self._start_blink_thread()
             
-            logger.info(f"GPIO initialized: system={self.system_pin}, alert={self.alert_pin}")
+            logger.info(f"GPIO initialized: system={self.system_pin}, alert={self.alert_pin}, collision_out={self.collision_output_pin}")
             return True
             
         except ImportError:
@@ -147,7 +152,8 @@ class GPIOStatusController:
             try:
                 self._gpio.output(self.system_pin, self._gpio.LOW)
                 self._gpio.output(self.alert_pin, self._gpio.LOW)
-                self._gpio.cleanup([self.system_pin, self.alert_pin])
+                self._gpio.output(self.collision_output_pin, self._gpio.LOW)
+                self._gpio.cleanup([self.system_pin, self.alert_pin, self.collision_output_pin])
             except Exception as e:
                 logger.warning(f"GPIO cleanup warning: {e}")
         
@@ -193,6 +199,29 @@ class GPIOStatusController:
                 self._gpio.output(self.alert_pin, self._gpio.HIGH if on else self._gpio.LOW)
             except Exception as e:
                 logger.warning(f"Failed to set alert LED: {e}")
+    
+    def set_collision_output(self, active: bool = True) -> None:
+        """
+        Set collision output pin state.
+        
+        This pin goes HIGH when a collision/object is detected.
+        Can be used to trigger external warning systems.
+        
+        Args:
+            active: True to set HIGH (collision detected), False for LOW
+        """
+        self._collision_output_state = active
+        
+        if self._gpio is not None and self._initialized:
+            try:
+                self._gpio.output(self.collision_output_pin, self._gpio.HIGH if active else self._gpio.LOW)
+            except Exception as e:
+                logger.warning(f"Failed to set collision output: {e}")
+    
+    @property
+    def collision_output_state(self) -> bool:
+        """Get current collision output state."""
+        return self._collision_output_state
     
     def pulse_alert(self, duration_ms: int = 200) -> None:
         """
@@ -271,11 +300,13 @@ class StubGPIOController:
     Stub GPIO controller for testing without hardware.
     """
     
-    def __init__(self, system_pin: int = 17, alert_pin: int = 27, **kwargs):
+    def __init__(self, system_pin: int = 17, alert_pin: int = 27, collision_output_pin: int = 22, **kwargs):
         self.system_pin = system_pin
         self.alert_pin = alert_pin
+        self.collision_output_pin = collision_output_pin
         self._system_led = False
         self._alert_led = False
+        self._collision_output = False
         self._initialized = False
     
     @property
@@ -290,6 +321,7 @@ class StubGPIOController:
     def cleanup(self) -> None:
         self._system_led = False
         self._alert_led = False
+        self._collision_output = False
         self._initialized = False
     
     def set_system_led(self, on: bool = True, blink: bool = False) -> None:
@@ -299,6 +331,10 @@ class StubGPIOController:
     def set_alert_led(self, on: bool = True, blink: bool = False) -> None:
         self._alert_led = on
         logger.debug(f"Stub: Alert LED {'ON' if on else 'OFF'}")
+    
+    def set_collision_output(self, active: bool = True) -> None:
+        self._collision_output = active
+        logger.debug(f"Stub: Collision output {'HIGH' if active else 'LOW'}")
     
     def pulse_alert(self, duration_ms: int = 200) -> None:
         logger.debug(f"Stub: Alert pulse {duration_ms}ms")
@@ -312,12 +348,18 @@ class StubGPIOController:
     def alert_led_state(self) -> bool:
         """Get alert LED state (for testing)."""
         return self._alert_led
+    
+    @property
+    def collision_output_state(self) -> bool:
+        """Get collision output state (for testing)."""
+        return self._collision_output
 
 
 def create_gpio_controller(
     enabled: bool = True,
     system_pin: int = 17,
     alert_pin: int = 27,
+    collision_output_pin: int = 22,
     **kwargs,
 ) -> GPIOStatusController | StubGPIOController:
     """
@@ -327,13 +369,14 @@ def create_gpio_controller(
         enabled: If False, returns StubGPIOController
         system_pin: BCM pin for system LED
         alert_pin: BCM pin for alert LED
+        collision_output_pin: BCM pin for collision output
         
     Returns:
         GPIOStatusController if available, StubGPIOController otherwise
     """
     if not enabled:
         logger.info("GPIO controller disabled, using stub")
-        return StubGPIOController(system_pin=system_pin, alert_pin=alert_pin)
+        return StubGPIOController(system_pin=system_pin, alert_pin=alert_pin, collision_output_pin=collision_output_pin)
     
     # Check if RPi.GPIO is available
     try:
@@ -341,9 +384,10 @@ def create_gpio_controller(
         return GPIOStatusController(
             system_pin=system_pin,
             alert_pin=alert_pin,
+            collision_output_pin=collision_output_pin,
             enabled=enabled,
             **kwargs,
         )
     except ImportError:
         logger.warning("RPi.GPIO not available, using stub controller")
-        return StubGPIOController(system_pin=system_pin, alert_pin=alert_pin)
+        return StubGPIOController(system_pin=system_pin, alert_pin=alert_pin, collision_output_pin=collision_output_pin)

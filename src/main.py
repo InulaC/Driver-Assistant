@@ -126,6 +126,10 @@ class DriverAssistant:
         self._last_display_alert = None
         self._alert_hold_counter = 0
         
+        # Traffic light visual persistence (separate from alerts)
+        self._last_traffic_light_detection = None  # Detection object
+        self._traffic_light_display_until = 0.0    # monotonic time when to stop showing
+        
         # Metrics
         self._fps_counter = FPSCounter(window_size=30)
         self._system_metrics = SystemMetrics()
@@ -374,6 +378,7 @@ class DriverAssistant:
         self._gpio_leds = create_gpio_controller(
             system_pin=self._config.gpio_leds.system_led_pin,
             alert_pin=self._config.gpio_leds.alert_led_pin,
+            collision_output_pin=self._config.gpio_leds.collision_output_pin,
             enabled=self._config.gpio_leds.enabled,
         )
         
@@ -486,6 +491,13 @@ class DriverAssistant:
         metrics.collision_risks = len(collision_risks)
         
         # =====================================================================
+        # Stage 5.5: Collision Output GPIO
+        # =====================================================================
+        # Set GPIO pin HIGH when object/collision is detected in danger zone
+        if self._gpio_leds is not None:
+            self._gpio_leds.set_collision_output(len(collision_risks) > 0)
+        
+        # =====================================================================
         # Stage 6: Lane Departure Detection
         # =====================================================================
         lane_departure = self._check_lane_departure(lane_result, frame.width)
@@ -540,12 +552,18 @@ class DriverAssistant:
         display_alert = self._get_display_alert(alert)
         
         # =====================================================================
+        # Stage 9.5: Traffic Light Visual Persistence
+        # =====================================================================
+        # Keep traffic light detection visible on screen for configured duration
+        display_detections = self._get_display_detections(detections)
+        
+        # =====================================================================
         # Stage 10: Display Rendering (optional, non-blocking)
         # =====================================================================
         if self._display and self._display.is_active:
             self._render_display(
                 frame,
-                detections,
+                display_detections,
                 lane_result,
                 display_alert,
                 collision_risks,
@@ -656,6 +674,53 @@ class DriverAssistant:
         # Hold period expired, clear the stored alert
         self._last_display_alert = None
         return None
+    
+    def _get_display_detections(self, current_detections: List[Detection]) -> List[Detection]:
+        """
+        Get detections to display, with traffic light visual persistence.
+        
+        Traffic light detections are held on screen for `traffic_light_display_hold_s`
+        seconds, even if YOLO doesn't detect them in subsequent frames.
+        This is visual only - does not affect audio alerts.
+        
+        Args:
+            current_detections: Detections from current YOLO inference
+            
+        Returns:
+            Detections list including persisted traffic lights
+        """
+        from src.detection import DetectionLabel
+        
+        now = time.monotonic()
+        hold_duration = self._config.alerts.traffic_light_display_hold_s
+        
+        # Check for new traffic light detections
+        current_traffic_lights = [
+            d for d in current_detections 
+            if d.label.is_traffic_light()
+        ]
+        
+        if current_traffic_lights:
+            # Found traffic light - update persistence
+            # Pick the one with highest confidence
+            best_light = max(current_traffic_lights, key=lambda d: d.confidence)
+            self._last_traffic_light_detection = best_light
+            self._traffic_light_display_until = now + hold_duration
+        
+        # Build display list
+        result = list(current_detections)
+        
+        # Add persisted traffic light if still within hold period and not already in list
+        if (self._last_traffic_light_detection is not None and 
+            now < self._traffic_light_display_until and
+            not current_traffic_lights):
+            result.append(self._last_traffic_light_detection)
+        
+        # Clear expired persistence
+        if now >= self._traffic_light_display_until:
+            self._last_traffic_light_detection = None
+        
+        return result
     
     def _dispatch_alert(self, alert: AlertEvent) -> None:
         """Dispatch alert to audio and buzzer outputs."""

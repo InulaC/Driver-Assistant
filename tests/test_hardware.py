@@ -341,7 +341,7 @@ class TestHardwareIntegration:
         assert isinstance(config.lidar, LiDARConfig)
         assert config.lidar.port == "/dev/ttyAMA0"
         assert config.lidar.baud_rate == 115200
-        assert config.lidar.collision_threshold_cm == 300
+        assert config.lidar.collision_threshold_cm == 600  # 6 meters for reaction time
     
     def test_config_gpio_led_parameters(self):
         """Test GPIO LED configuration loading."""
@@ -353,6 +353,7 @@ class TestHardwareIntegration:
         assert isinstance(config.gpio_leds, GPIOLEDConfig)
         assert config.gpio_leds.system_led_pin == 17
         assert config.gpio_leds.alert_led_pin == 27
+        assert config.gpio_leds.collision_output_pin == 22  # Collision output
 
 
 # ==============================================================================
