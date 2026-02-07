@@ -14,7 +14,7 @@ capture:
   reconnect_interval_ms: 500
 
 yolo:
-  enabled: false                 # Set to false to disable YOLO detection entirely
+  enabled: true                 # Set to false to disable YOLO detection entirely
   model_path: models/object.onnx
   input_size: [640, 640]
   confidence_threshold: 0.25
