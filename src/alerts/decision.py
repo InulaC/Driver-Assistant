@@ -1,11 +1,15 @@
 """Alert decision engine - evaluates hazards and generates alerts."""
 
+import logging
 import time
 from typing import Optional, List, Tuple
 from dataclasses import dataclass, field
 
 from .types import AlertType, AlertEvent
 from src.detection.result import Detection, DetectionLabel
+
+# OPT-7: Module-level logger to avoid import overhead in hot paths
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -149,24 +153,59 @@ class DangerZone:
         
         return inside
     
+    def _get_polygon_aabb(self, polygon: List[Tuple[int, int]]) -> Tuple[int, int, int, int]:
+        """
+        OPT-5: Compute axis-aligned bounding box of polygon.
+        
+        Returns:
+            (min_x, min_y, max_x, max_y)
+        """
+        xs = [p[0] for p in polygon]
+        ys = [p[1] for p in polygon]
+        return (min(xs), min(ys), max(xs), max(ys))
+    
     def intersects_bbox(self, bbox: tuple, width: int, height: int) -> bool:
-        """Check if a bounding box intersects the danger zone."""
+        """
+        Check if a bounding box intersects the danger zone.
+        
+        OPT-5: Uses AABB pre-filter for fast rejection before polygon tests.
+        """
         x1, y1, x2, y2 = bbox
         
-        # Check center point
+        # Get current polygon
+        if self._use_dynamic and self._dynamic_polygon is not None:
+            polygon = self._dynamic_polygon
+        else:
+            polygon = self.get_polygon(width, height)
+        
+        # OPT-5: Quick AABB rejection test
+        aabb_x1, aabb_y1, aabb_x2, aabb_y2 = self._get_polygon_aabb(polygon)
+        
+        # If bbox doesn't overlap AABB at all, no intersection possible
+        if x2 < aabb_x1 or x1 > aabb_x2 or y2 < aabb_y1 or y1 > aabb_y2:
+            return False
+        
+        # Check center point (most common case)
         cx = (x1 + x2) / 2
         cy = (y1 + y2) / 2
         if self.contains_point(cx, cy, width, height):
             return True
         
-        # Check bottom center (most relevant for collision)
+        # Check bottom center (most relevant for collision with vehicles)
         if self.contains_point(cx, y2, width, height):
             return True
         
-        # Check corners
-        for x, y in [(x1, y1), (x2, y1), (x1, y2), (x2, y2)]:
-            if self.contains_point(x, y, width, height):
-                return True
+        # OPT-5: Skip corner checks in most cases - only if center tests failed
+        # and bbox significantly overlaps the AABB (edge cases)
+        overlap_x = min(x2, aabb_x2) - max(x1, aabb_x1)
+        overlap_y = min(y2, aabb_y2) - max(y1, aabb_y1)
+        bbox_area = (x2 - x1) * (y2 - y1)
+        
+        # Only check corners if significant overlap exists (>25% of bbox area)
+        if bbox_area > 0 and (overlap_x * overlap_y) > (bbox_area * 0.25):
+            for x, y in [(x1, y1), (x2, y1), (x1, y2), (x2, y2)]:
+                if self.contains_point(x, y, width, height):
+                    return True
         
         return False
     
@@ -290,8 +329,7 @@ class AlertDecisionEngine:
                 ))
             else:
                 # Vision only - log diagnostic but don't alert
-                import logging
-                logging.getLogger(__name__).debug(
+                logger.debug(
                     f"Collision candidate (vision only): {len(collision_detections)} objects in zone, "
                     f"LiDAR: {self._lidar_distance_cm}cm (threshold: {self.lidar_threshold_cm}cm)"
                 )
@@ -418,8 +456,7 @@ class AlertDecisionEngine:
         
         # If LiDAR is not available, fail-safe to vision-only mode
         if not self._lidar_available:
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "LiDAR unavailable - collision check using vision only"
             )
             return True
@@ -427,8 +464,7 @@ class AlertDecisionEngine:
         # CRITICAL FIX: If LiDAR is available but reading is None (transient error),
         # fail-safe to vision-only mode to avoid missing collision alerts
         if self._lidar_distance_cm is None:
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "LiDAR reading is None (transient error) - collision check using vision only"
             )
             return True

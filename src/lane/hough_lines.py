@@ -89,6 +89,8 @@ class HoughLineExtractor:
         """
         Extract line segments from an edge image.
         
+        OPT-6: Vectorized length and slope calculation.
+        
         Args:
             edge_image: Binary edge image from Canny or similar
             
@@ -107,11 +109,34 @@ class HoughLineExtractor:
         if lines is None:
             return []
         
+        # OPT-6: Vectorized computation instead of per-line loop
+        lines_array = lines.reshape(-1, 4)  # (N, 4): x1, y1, x2, y2
+        n_lines = len(lines_array)
+        
+        if n_lines == 0:
+            return []
+        
+        # Vectorized dx, dy calculation
+        dx = lines_array[:, 2] - lines_array[:, 0]
+        dy = lines_array[:, 3] - lines_array[:, 1]
+        
+        # Vectorized length calculation (single sqrt call for all lines)
+        lengths = np.sqrt(dx * dx + dy * dy)
+        
+        # Vectorized slope (handle division by zero)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            slopes = np.where(dx != 0, dy / dx, np.nan)
+        
+        # Build LineSegment objects from vectorized results
         segments = []
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            segment = LineSegment.from_points(x1, y1, x2, y2)
-            segments.append(segment)
+        for i in range(n_lines):
+            x1, y1, x2, y2 = lines_array[i]
+            slope = float(slopes[i]) if not np.isnan(slopes[i]) else None
+            segments.append(LineSegment(
+                x1=int(x1), y1=int(y1), x2=int(x2), y2=int(y2),
+                slope=slope,
+                length=float(lengths[i])
+            ))
         
         return segments
     

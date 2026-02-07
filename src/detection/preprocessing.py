@@ -94,6 +94,8 @@ def scale_boxes(
     """
     Scale bounding boxes from model output back to original image coordinates.
     
+    OPT-2: Optimized with vectorized operations and in-place clipping.
+    
     Args:
         boxes: Boxes in xyxy format (N, 4) in model input coordinates
         scale: Scale factor used during preprocessing
@@ -109,17 +111,13 @@ def scale_boxes(
     pad_x, pad_y = padding
     orig_w, orig_h = original_size
     
-    # Remove padding offset and scale back
+    # OPT-2: Vectorized scaling with fewer intermediate arrays
     scaled = boxes.copy()
-    scaled[:, 0] = (boxes[:, 0] - pad_x) / scale  # x_min
-    scaled[:, 1] = (boxes[:, 1] - pad_y) / scale  # y_min
-    scaled[:, 2] = (boxes[:, 2] - pad_x) / scale  # x_max
-    scaled[:, 3] = (boxes[:, 3] - pad_y) / scale  # y_max
+    scaled[:, [0, 2]] = (boxes[:, [0, 2]] - pad_x) / scale  # x coords
+    scaled[:, [1, 3]] = (boxes[:, [1, 3]] - pad_y) / scale  # y coords
     
-    # Clip to image bounds
-    scaled[:, 0] = np.clip(scaled[:, 0], 0, orig_w)
-    scaled[:, 1] = np.clip(scaled[:, 1], 0, orig_h)
-    scaled[:, 2] = np.clip(scaled[:, 2], 0, orig_w)
-    scaled[:, 3] = np.clip(scaled[:, 3], 0, orig_h)
+    # In-place clipping
+    np.clip(scaled[:, [0, 2]], 0, orig_w, out=scaled[:, [0, 2]])
+    np.clip(scaled[:, [1, 3]], 0, orig_h, out=scaled[:, [1, 3]])
     
     return scaled

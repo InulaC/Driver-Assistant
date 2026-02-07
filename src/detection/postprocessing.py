@@ -217,6 +217,47 @@ def create_detections(
     return detections
 
 
+def create_detections_batched(
+    class_ids: List[int],
+    confidences: List[float],
+    boxes: np.ndarray,
+    timestamp: float
+) -> List[Detection]:
+    """
+    Create Detection objects from batched arrays (optimized).
+    
+    OPT-1: Avoids per-detection array operations by using pre-scaled batch.
+    
+    Args:
+        class_ids: List of class IDs
+        confidences: List of confidence scores  
+        boxes: Scaled boxes array (N, 4) in xyxy format
+        timestamp: Current frame timestamp
+        
+    Returns:
+        List of Detection objects
+    """
+    detections = []
+    
+    for i, (class_id, confidence) in enumerate(zip(class_ids, confidences)):
+        label = CLASS_MAPPING.get(class_id)
+        if label is None:
+            continue
+        
+        class_name = MODEL_CLASSES[class_id] if class_id < len(MODEL_CLASSES) else "unknown"
+        bbox = tuple(boxes[i].tolist())
+        
+        detections.append(Detection(
+            label=label,
+            confidence=confidence,
+            bbox=bbox,
+            class_name=class_name,
+            timestamp=timestamp,
+        ))
+    
+    return detections
+
+
 def get_class_name(class_id: int) -> str:
     """Get class name from class ID."""
     if 0 <= class_id < len(MODEL_CLASSES):

@@ -19,7 +19,7 @@ yolo:
   input_size: [640, 640]
   confidence_threshold: 0.25
   iou_threshold: 0.45
-  frame_skip: 5
+  frame_skip: 8
   cache_ttl_ms: 500
   # Custom model classes:
   # 0: vehicle, 1: pedestrian, 2: trafficLight (generic),
@@ -78,9 +78,9 @@ danger_zone:
 
 alerts:
   cooldown_ms: 300
-  traffic_light_cooldown_ms: 1000  # Separate longer cooldown for traffic light alerts
+  traffic_light_cooldown_ms: 10000  # Separate longer cooldown for traffic light alerts
   alert_hold_frames: 5  # How many frames to keep showing an alert on display
-  traffic_light_display_hold_s: 4.0  # How long to show traffic light visual on screen (seconds)
+  traffic_light_display_hold_s: 2.0  # How long to show traffic light visual on screen (seconds)
   sounds:
     collision: sounds/collision.wav
     lane_left: sounds/lane_left.wav

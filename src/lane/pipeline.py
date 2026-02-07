@@ -131,13 +131,16 @@ class LaneDetectionPipeline:
             # Stage 1: Apply ROI mask
             roi_image = cv2.bitwise_and(image, image, mask=self._roi_mask)
             
-            # Stage 2: Color filtering (HSV)
-            color_mask = self._color_filter.filter(roi_image)
+            # OPT-3: Fused color filtering + edge detection (single pass)
+            # Replaces separate Stage 2 (color) and Stage 3 (edge) with combined operation
+            edges = self._color_filter.filter_with_edges(
+                roi_image,
+                gaussian_kernel=self._edge_detector._gaussian_kernel,
+                canny_low=self._edge_detector._canny_low,
+                canny_high=self._edge_detector._canny_high,
+            )
             
-            # Stage 3: Edge detection
-            edges = self._edge_detector.detect_on_mask(color_mask)
-            
-            # Apply ROI to edges as well
+            # Apply ROI to edges
             edges = cv2.bitwise_and(edges, self._roi_mask)
             
             # Stage 4: Hough line extraction

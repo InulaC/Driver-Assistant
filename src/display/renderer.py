@@ -162,6 +162,8 @@ class DisplayRenderer:
         """
         Render all overlays on frame.
         
+        OPT-4: Optimized rendering with reduced frame copies.
+        
         Args:
             frame: Input BGR frame
             detections: List of YOLO detections
@@ -175,16 +177,16 @@ class DisplayRenderer:
         Returns:
             Frame with overlays rendered
         """
+        # OPT-4: Single copy at start, then in-place modifications where possible
         output = frame.copy()
-        collision_set = set()
         
-        if collision_risks:
-            collision_set = {id(d) for d in collision_risks}
+        # Pre-compute collision set once (avoid repeated set creation)
+        collision_set = {id(d) for d in collision_risks} if collision_risks else set()
         
         # Check if danger zone is dynamic (follows lanes)
         is_dynamic = info.get("danger_zone_dynamic", False) if info else False
         
-        # Layer 1: Danger zone (background)
+        # Layer 1: Danger zone (requires blending)
         if danger_zone:
             output = self._draw_danger_zone(output, danger_zone, is_dynamic)
         
@@ -192,13 +194,13 @@ class DisplayRenderer:
         if overtake_advisory and _OVERTAKE_AVAILABLE:
             output = self._draw_overtake_advisory(output, overtake_advisory)
         
-        # Layer 2: Lane lines
+        # Layer 2: Lane lines (in-place)
         if lane_result:
-            output = self._draw_lanes(output, lane_result)
+            self._draw_lanes_inplace(output, lane_result)
         
-        # Layer 3: Detection bounding boxes
+        # Layer 3: Detection bounding boxes (in-place)
         if detections:
-            output = self._draw_detections(output, detections, collision_set)
+            self._draw_detections_inplace(output, detections, collision_set)
         
         # Layer 4: Alert banner (top)
         if alert:
@@ -210,6 +212,110 @@ class DisplayRenderer:
         
         return output
     
+    def _draw_lanes_inplace(self, frame: np.ndarray, lane_result: LaneResult) -> None:
+        """
+        OPT-4: Draw lane lines directly on frame (no copy).
+        """
+        # Draw left lane
+        if lane_result.left_lane:
+            self._draw_lane_polynomial_inplace(
+                frame,
+                lane_result.left_lane,
+                self._config.lane_color,
+                self._config.lane_thickness,
+            )
+        
+        # Draw right lane
+        if lane_result.right_lane:
+            self._draw_lane_polynomial_inplace(
+                frame,
+                lane_result.right_lane,
+                self._config.lane_color,
+                self._config.lane_thickness,
+            )
+        
+        # Draw filled lane area if both lanes valid
+        if lane_result.valid and lane_result.left_lane and lane_result.right_lane:
+            self._draw_lane_fill_inplace(
+                frame,
+                lane_result.left_lane,
+                lane_result.right_lane,
+            )
+    
+    def _draw_lane_polynomial_inplace(
+        self,
+        frame: np.ndarray,
+        lane: LanePolynomial,
+        color: Tuple[int, int, int],
+        thickness: int,
+    ) -> None:
+        """Draw lane polynomial directly on frame."""
+        points = lane.get_points(num_points=50)
+        if len(points) < 2:
+            return
+        pts = np.array(points, dtype=np.int32)
+        cv2.polylines(frame, [pts], False, color, thickness, cv2.LINE_AA)
+    
+    def _draw_lane_fill_inplace(
+        self,
+        frame: np.ndarray,
+        left_lane: LanePolynomial,
+        right_lane: LanePolynomial,
+    ) -> None:
+        """Draw filled area between lanes with blending."""
+        left_points = left_lane.get_points(num_points=30)
+        right_points = right_lane.get_points(num_points=30)
+        
+        if len(left_points) < 2 or len(right_points) < 2:
+            return
+        
+        polygon_pts = np.array(
+            left_points + right_points[::-1],
+            dtype=np.int32
+        )
+        
+        # Create overlay for blending
+        overlay = frame.copy()
+        cv2.fillPoly(overlay, [polygon_pts], (0, 100, 0))
+        cv2.addWeighted(overlay, 0.3, frame, 0.7, 0, dst=frame)
+    
+    def _draw_detections_inplace(
+        self,
+        frame: np.ndarray,
+        detections: List[Detection],
+        collision_set: set,
+    ) -> None:
+        """
+        OPT-4: Draw detection boxes directly on frame (no copy).
+        """
+        # Cache font parameters to avoid repeated attribute access
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = self._config.font_scale
+        font_thickness = self._config.font_thickness
+        bbox_thickness = self._config.bbox_thickness
+        show_labels = self._config.show_bbox_labels
+        
+        for det in detections:
+            color = self._config.detection_colors.get(det.label, (255, 255, 255))
+            x1, y1, x2, y2 = map(int, det.bbox)
+            
+            in_danger = id(det) in collision_set
+            thickness = bbox_thickness + 2 if in_danger else bbox_thickness
+            
+            if in_danger:
+                cv2.rectangle(frame, (x1-2, y1-2), (x2+2, y2+2), (0, 0, 255), thickness + 2)
+            
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+            
+            if show_labels:
+                label = f"{det.class_name}: {det.confidence:.2f}"
+                if in_danger:
+                    label = "! " + label
+                
+                (tw, th), _ = cv2.getTextSize(label, font, font_scale, font_thickness)
+                cv2.rectangle(frame, (x1, y1 - th - 8), (x1 + tw + 4, y1), color, -1)
+                cv2.putText(frame, label, (x1 + 2, y1 - 4), font, font_scale, (0, 0, 0), font_thickness)
+
     def _draw_danger_zone(
         self,
         frame: np.ndarray,
@@ -217,7 +323,6 @@ class DisplayRenderer:
         is_dynamic: bool = False,
     ) -> np.ndarray:
         """Draw semi-transparent danger zone overlay."""
-        output = frame.copy()
         overlay = frame.copy()
         
         pts = np.array(polygon, np.int32).reshape((-1, 1, 2))
@@ -235,7 +340,7 @@ class DisplayRenderer:
         
         # Blend
         alpha = self._config.danger_zone_alpha
-        output = cv2.addWeighted(overlay, alpha, output, 1 - alpha, 0)
+        output = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
         
         # Draw border
         cv2.polylines(output, [pts], True, border_color, 2)

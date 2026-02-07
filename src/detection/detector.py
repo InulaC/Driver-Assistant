@@ -16,7 +16,7 @@ except ImportError:
     ort = None
 
 from .preprocessing import preprocess_for_yolo, scale_boxes
-from .postprocessing import process_yolo_output, create_detections
+from .postprocessing import process_yolo_output, create_detections, create_detections_batched
 from .result import Detection, DetectionResult
 
 
@@ -149,22 +149,22 @@ class YOLODetector:
             filter_relevant_only=True,
         )
         
-        # Scale boxes back to original image coordinates
+        # OPT-1: Batch scale all boxes at once instead of per-detection loop
         h, w = frame.shape[:2]
-        scaled_detections = []
-        for class_id, confidence, bbox in raw_detections:
-            # scale_boxes expects (N, 4) array, wrap single box
-            bbox_batch = bbox.reshape(1, 4)
-            scaled_batch = scale_boxes(
-                bbox_batch,
-                scale=scale,
-                padding=pad,
-                original_size=(w, h),
+        if raw_detections:
+            class_ids = [d[0] for d in raw_detections]
+            confidences = [d[1] for d in raw_detections]
+            boxes = np.array([d[2] for d in raw_detections])
+            
+            # Batch scale all boxes in single operation
+            scaled_boxes = scale_boxes(boxes, scale, pad, (w, h))
+            
+            # Create detections from batched results
+            detections = create_detections_batched(
+                class_ids, confidences, scaled_boxes, timestamp
             )
-            scaled_detections.append((class_id, confidence, scaled_batch[0]))
-        
-        # Create Detection objects
-        detections = create_detections(scaled_detections, timestamp)
+        else:
+            detections = []
         
         # Calculate inference time
         inference_time = time.perf_counter() - start_time

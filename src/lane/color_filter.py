@@ -68,6 +68,46 @@ class ColorFilter:
         """Filter only yellow pixels."""
         hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
         return cv2.inRange(hsv, self._yellow_lower, self._yellow_upper)
+    
+    def filter_with_edges(
+        self,
+        bgr_image: np.ndarray,
+        gaussian_kernel: Tuple[int, int] = (5, 5),
+        canny_low: int = 50,
+        canny_high: int = 150,
+    ) -> np.ndarray:
+        """
+        OPT-3: Combined color filtering and edge detection in single pass.
+        
+        Optimization: Single HSV conversion with fused color+edge pipeline.
+        Eliminates redundant image conversions.
+        
+        Args:
+            bgr_image: Input BGR image
+            gaussian_kernel: Gaussian blur kernel size
+            canny_low: Canny low threshold
+            canny_high: Canny high threshold
+            
+        Returns:
+            Binary edge image of lane candidates
+        """
+        # Single HSV conversion (avoids double conversion)
+        hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+        
+        # Parallel color masks
+        white_mask = cv2.inRange(hsv, self._white_lower, self._white_upper)
+        yellow_mask = cv2.inRange(hsv, self._yellow_lower, self._yellow_upper)
+        
+        # Combine with bitwise OR
+        combined_mask = cv2.bitwise_or(white_mask, yellow_mask)
+        
+        # Apply blur directly to mask (skips separate edge detector preprocessing)
+        blurred = cv2.GaussianBlur(combined_mask, gaussian_kernel, 0)
+        
+        # Edge detection on color-filtered result
+        edges = cv2.Canny(blurred, canny_low, canny_high)
+        
+        return edges
 
 
 def apply_morphology(mask: np.ndarray, kernel_size: int = 3) -> np.ndarray:
