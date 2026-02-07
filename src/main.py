@@ -535,8 +535,21 @@ class DriverAssistant:
         # Update decision engine with current LiDAR distance for collision confirmation
         if self._lidar is not None:
             lidar_reading = self._lidar.get_reading()
+            # HIGH FIX: Always update LiDAR status, not just when reading is valid
+            # This ensures _lidar_available is correctly set to True
             if lidar_reading and lidar_reading.valid:
-                self._decision_engine.update_lidar_distance(lidar_reading.distance_cm)
+                self._decision_engine.update_lidar_distance(
+                    lidar_reading.distance_cm, available=True
+                )
+                # HIGH FIX: Add LiDAR data to frame metrics for telemetry
+                metrics.lidar_distance_cm = lidar_reading.distance_cm
+                metrics.lidar_strength = lidar_reading.strength
+                metrics.lidar_valid = True
+            else:
+                # LiDAR connected but no valid reading - still mark as available
+                # so the fail-safe logic in _check_lidar_collision works correctly
+                self._decision_engine.update_lidar_distance(None, available=True)
+                metrics.lidar_valid = False
         
         # =====================================================================
         # Stage 7: Alert Decision

@@ -138,6 +138,11 @@ class DangerZone:
             xi, yi = polygon[i]
             xj, yj = polygon[j]
             
+            # CRITICAL FIX: Guard against division by zero when vertices have same Y
+            if yj == yi:
+                j = i
+                continue
+            
             if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
                 inside = not inside
             j = i
@@ -398,7 +403,11 @@ class AlertDecisionEngine:
         Returns True if:
         - LiDAR is not required (lidar_required=False), OR
         - LiDAR is unavailable (fail-safe: allow vision-only), OR
+        - LiDAR reading is None (fail-safe: allow vision-only), OR
         - LiDAR distance is below threshold
+        
+        SAFETY: This method is FAIL-SAFE - when in doubt, it allows
+        vision-only alerts to prevent missed collision warnings.
         
         Returns:
             True if collision is confirmed or LiDAR check should be bypassed
@@ -415,9 +424,14 @@ class AlertDecisionEngine:
             )
             return True
         
-        # If no valid distance reading, don't confirm
+        # CRITICAL FIX: If LiDAR is available but reading is None (transient error),
+        # fail-safe to vision-only mode to avoid missing collision alerts
         if self._lidar_distance_cm is None:
-            return False
+            import logging
+            logging.getLogger(__name__).warning(
+                "LiDAR reading is None (transient error) - collision check using vision only"
+            )
+            return True
         
         # Check if distance is below threshold
         return self._lidar_distance_cm <= self.lidar_threshold_cm

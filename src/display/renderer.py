@@ -647,7 +647,8 @@ class DisplayRenderer:
         if self._window_created:
             try:
                 cv2.destroyWindow(self._config.window_name)
-            except:
+            except Exception:
+                # Window may already be destroyed or OpenCV not available
                 pass
             self._window_created = False
         

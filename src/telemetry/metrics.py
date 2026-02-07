@@ -49,6 +49,11 @@ class FrameMetrics:
     ip_reconnect_count: Optional[int] = None
     ip_downtime_ms: Optional[float] = None
     
+    # HIGH FIX: LiDAR sensor metrics for telemetry analysis
+    lidar_distance_cm: Optional[float] = None
+    lidar_strength: Optional[int] = None
+    lidar_valid: Optional[bool] = None
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
@@ -75,6 +80,14 @@ class FrameMetrics:
             result["ip_reconnect_count"] = self.ip_reconnect_count
         if self.ip_downtime_ms is not None:
             result["ip_downtime_ms"] = round(self.ip_downtime_ms, 2)
+        
+        # Include LiDAR metrics only if present
+        if self.lidar_distance_cm is not None:
+            result["lidar_distance_cm"] = round(self.lidar_distance_cm, 1)
+        if self.lidar_strength is not None:
+            result["lidar_strength"] = self.lidar_strength
+        if self.lidar_valid is not None:
+            result["lidar_valid"] = self.lidar_valid
         
         return result
 

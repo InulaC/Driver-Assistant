@@ -58,11 +58,20 @@ class TelemetryRecord:
     ip_reconnect_count: Optional[int] = None
     ip_downtime_ms: Optional[float] = None
     
+    # HIGH FIX: LiDAR sensor metrics (optional)
+    lidar_distance_cm: Optional[float] = None
+    lidar_strength: Optional[int] = None
+    lidar_valid: Optional[bool] = None
+    
     def to_json(self) -> str:
-        """Serialize to JSON string, excluding None optional fields for IP metrics."""
+        """Serialize to JSON string, excluding None optional fields for sensor metrics."""
         data = asdict(self)
         # Remove None IP camera fields to avoid cluttering logs for non-IP sources
         for key in ["ip_acquisition_latency_ms", "ip_reconnect_count", "ip_downtime_ms"]:
+            if data.get(key) is None:
+                del data[key]
+        # Remove None LiDAR fields to avoid cluttering logs when LiDAR not active
+        for key in ["lidar_distance_cm", "lidar_strength", "lidar_valid"]:
             if data.get(key) is None:
                 del data[key]
         return json.dumps(data, separators=(',', ':'))
@@ -94,6 +103,9 @@ class TelemetryRecord:
             ip_acquisition_latency_ms=round(frame_metrics.ip_acquisition_latency_ms, 1) if frame_metrics.ip_acquisition_latency_ms else None,
             ip_reconnect_count=frame_metrics.ip_reconnect_count,
             ip_downtime_ms=round(frame_metrics.ip_downtime_ms, 1) if frame_metrics.ip_downtime_ms else None,
+            lidar_distance_cm=round(frame_metrics.lidar_distance_cm, 1) if frame_metrics.lidar_distance_cm else None,
+            lidar_strength=frame_metrics.lidar_strength,
+            lidar_valid=frame_metrics.lidar_valid,
         )
 
 

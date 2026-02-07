@@ -255,16 +255,29 @@ class IPCameraAdapter(CameraAdapter):
         the most recently captured frame. Attempts reconnection if
         the stream has been down.
         
+        HIGH FIX: Reconnection is now non-blocking. If stream is down,
+        we return None immediately and let the main loop continue processing.
+        Reconnection attempts are rate-limited to avoid blocking.
+        
         Returns:
             Frame object if successful, None if capture failed
         """
         if not self._is_initialized or self._cap is None:
-            # Attempt reconnection if not initialized
+            # HIGH FIX: Non-blocking reconnection - only attempt if enough time has passed
+            now = time.monotonic()
+            if not hasattr(self, '_last_reconnect_attempt'):
+                self._last_reconnect_attempt = 0.0
+            
+            # Rate limit reconnection attempts to once per second
+            if now - self._last_reconnect_attempt < 1.0:
+                return None  # Return immediately, don't block
+            
+            self._last_reconnect_attempt = now
             logger.warning("IP camera not initialized, attempting reconnection...")
             self._metrics.record_reconnect()
-            if not self._attempt_reconnect():
-                # Add small delay to prevent tight loop spam
-                time.sleep(0.5)
+            
+            # Attempt quick reconnection (single attempt, non-blocking)
+            if not self._attempt_quick_reconnect():
                 return None
             logger.info("IP camera reconnected successfully")
         
@@ -350,9 +363,72 @@ class IPCameraAdapter(CameraAdapter):
         
         return None
     
+    def _attempt_quick_reconnect(self) -> bool:
+        """
+        Attempt a single quick reconnection to the IP camera.
+        
+        HIGH FIX: This is a non-blocking single-attempt reconnection
+        used by the capture() method to avoid blocking the main loop.
+        
+        Returns:
+            True if reconnection successful
+        """
+        # Stop grab thread first (quick timeout)
+        if self._grab_thread is not None:
+            self._stop_grab_thread.set()
+            self._grab_thread.join(timeout=0.5)  # Short timeout
+            if self._grab_thread.is_alive():
+                logger.warning("Grab thread still alive during quick reconnect")
+            self._grab_thread = None
+        
+        # Release existing connection
+        if self._cap is not None:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+            self._cap = None
+        
+        self._is_initialized = False
+        
+        # Single quick attempt (no retries, no delays)
+        try:
+            self._cap = cv2.VideoCapture(self._url)
+            
+            if self._cap.isOpened():
+                self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                
+                ret, test_frame = self._cap.read()
+                if ret and test_frame is not None:
+                    with self._grab_lock:
+                        self._latest_frame = test_frame
+                        self._latest_frame_time = time.monotonic()
+                    
+                    self._stop_grab_thread.clear()
+                    self._grab_thread = threading.Thread(
+                        target=self._frame_grab_loop,
+                        name="IPCameraGrab",
+                        daemon=True,
+                    )
+                    self._grab_thread.start()
+                    
+                    self._is_initialized = True
+                    return True
+                
+                self._cap.release()
+                self._cap = None
+                
+        except Exception as e:
+            logger.debug(f"Quick reconnection failed: {e}")
+        
+        return False
+    
     def _attempt_reconnect(self) -> bool:
         """
-        Attempt to reconnect to the IP camera.
+        Attempt to reconnect to the IP camera with retries.
+        
+        This is the full reconnection method with multiple attempts.
+        Used by explicit reconnect() calls, not by capture().
         
         Returns:
             True if reconnection successful
@@ -361,6 +437,8 @@ class IPCameraAdapter(CameraAdapter):
         if self._grab_thread is not None:
             self._stop_grab_thread.set()
             self._grab_thread.join(timeout=2.0)
+            if self._grab_thread.is_alive():
+                logger.warning("Grab thread still alive after join timeout")
             self._grab_thread = None
         
         # Release existing connection
@@ -423,6 +501,9 @@ class IPCameraAdapter(CameraAdapter):
         if self._grab_thread is not None:
             self._stop_grab_thread.set()
             self._grab_thread.join(timeout=2.0)
+            # HIGH FIX: Check if thread is still alive after join timeout
+            if self._grab_thread.is_alive():
+                logger.warning("IP camera grab thread did not stop within timeout")
             self._grab_thread = None
             logger.debug("IP camera grab thread stopped")
         
