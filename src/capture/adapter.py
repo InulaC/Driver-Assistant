@@ -20,6 +20,7 @@ class CaptureConfig:
     source: FrameSource = FrameSource.WEBCAM
     video_path: Optional[str] = None
     camera_index: int = 0
+    ip_url: Optional[str] = None  # IP camera stream URL (MJPEG/RTSP)
 
 
 class CameraAdapter(ABC):

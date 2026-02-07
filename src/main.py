@@ -84,6 +84,7 @@ class DriverAssistant:
         config: Config,
         source: FrameSource,
         video_path: Optional[str] = None,
+        ip_url: Optional[str] = None,
         display_enabled: bool = False,
         disable_ir: bool = True,
     ):
@@ -94,12 +95,14 @@ class DriverAssistant:
             config: System configuration
             source: Frame source type
             video_path: Path to video file (if source is VIDEO_FILE)
+            ip_url: IP camera stream URL (if source is IP_CAMERA)
             display_enabled: Whether to enable graphical display
             disable_ir: Whether to disable IR sensor
         """
         self._config = config
         self._source = source
         self._video_path = video_path
+        self._ip_url = ip_url
         self._display_enabled = display_enabled
         self._disable_ir = disable_ir
         
@@ -213,6 +216,7 @@ class DriverAssistant:
                 timeout_ms=self._config.capture.timeout_ms,
                 source=self._source,
                 video_path=self._video_path,
+                ip_url=self._ip_url,
             )
             
             self._camera = create_camera_adapter(capture_config)
@@ -436,10 +440,24 @@ class DriverAssistant:
         frame = self._camera.capture()
         metrics.capture_latency_ms = (time.monotonic() - capture_start) * 1000
         
+        # Collect IP camera specific metrics if applicable
+        if self._source == FrameSource.IP_CAMERA:
+            from src.capture.ip_camera import IPCameraAdapter
+            if isinstance(self._camera, IPCameraAdapter):
+                ip_latency, ip_reconnects, ip_downtime = self._camera.get_ip_metrics()
+                metrics.ip_acquisition_latency_ms = ip_latency
+                metrics.ip_reconnect_count = ip_reconnects
+                metrics.ip_downtime_ms = ip_downtime
+        
         if frame is None:
             self._dropped_frames += 1
             metrics.dropped_frames = self._dropped_frames
             logger.warning(f"Frame dropped (total: {self._dropped_frames})")
+            
+            # Still check for quit key even when frames are dropping
+            if self._display and self._display.is_active:
+                self._display.poll_key()
+            
             return
         
         metrics.timestamp = frame.timestamp
@@ -911,6 +929,9 @@ Examples:
 
   # Windows (video file, debugging)
   python -m src.main --source video --video-path test.mp4 --display
+
+  # IP camera stream (MJPEG or RTSP)
+  python -m src.main --source ip --ip-url http://192.168.1.100:8080/video --display
         """,
     )
     
@@ -919,7 +940,7 @@ Examples:
     source_group.add_argument(
         "--source",
         type=str,
-        choices=["csi", "webcam", "video"],
+        choices=["csi", "webcam", "video", "ip"],
         default="webcam" if not is_raspberry_pi() else "csi",
         help="Frame source (default: csi on Pi, webcam on Windows)",
     )
@@ -934,6 +955,12 @@ Examples:
         type=int,
         default=0,
         help="Camera index for webcam source (default: 0)",
+    )
+    source_group.add_argument(
+        "--ip-url",
+        type=str,
+        default=None,
+        help="IP camera stream URL (required if source=ip). Supports MJPEG and RTSP.",
     )
     
     # Display
@@ -1057,12 +1084,18 @@ def main() -> int:
         "csi": FrameSource.CSI,
         "webcam": FrameSource.WEBCAM,
         "video": FrameSource.VIDEO_FILE,
+        "ip": FrameSource.IP_CAMERA,
     }
     source = source_map[args.source]
     
     # Validate video path
     if source == FrameSource.VIDEO_FILE and not args.video_path:
         logger.error("--video-path required when source=video")
+        return 1
+    
+    # Validate IP camera URL
+    if source == FrameSource.IP_CAMERA and not args.ip_url:
+        logger.error("--ip-url required when source=ip")
         return 1
     
     # Determine display mode
@@ -1076,6 +1109,7 @@ def main() -> int:
         config=config,
         source=source,
         video_path=args.video_path,
+        ip_url=args.ip_url,
         display_enabled=display_enabled,
         disable_ir=disable_ir,
     )

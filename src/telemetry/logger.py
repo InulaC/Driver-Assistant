@@ -53,9 +53,19 @@ class TelemetryRecord:
     detections_count: int
     collision_risks: int
     
+    # IP camera specific metrics (optional)
+    ip_acquisition_latency_ms: Optional[float] = None
+    ip_reconnect_count: Optional[int] = None
+    ip_downtime_ms: Optional[float] = None
+    
     def to_json(self) -> str:
-        """Serialize to JSON string."""
-        return json.dumps(asdict(self), separators=(',', ':'))
+        """Serialize to JSON string, excluding None optional fields for IP metrics."""
+        data = asdict(self)
+        # Remove None IP camera fields to avoid cluttering logs for non-IP sources
+        for key in ["ip_acquisition_latency_ms", "ip_reconnect_count", "ip_downtime_ms"]:
+            if data.get(key) is None:
+                del data[key]
+        return json.dumps(data, separators=(',', ':'))
     
     @classmethod
     def from_metrics(
@@ -81,6 +91,9 @@ class TelemetryRecord:
             lane_valid=frame_metrics.lane_valid,
             detections_count=frame_metrics.detections_count,
             collision_risks=frame_metrics.collision_risks,
+            ip_acquisition_latency_ms=round(frame_metrics.ip_acquisition_latency_ms, 1) if frame_metrics.ip_acquisition_latency_ms else None,
+            ip_reconnect_count=frame_metrics.ip_reconnect_count,
+            ip_downtime_ms=round(frame_metrics.ip_downtime_ms, 1) if frame_metrics.ip_downtime_ms else None,
         )
 
 

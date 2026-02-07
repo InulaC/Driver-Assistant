@@ -44,9 +44,14 @@ class FrameMetrics:
     # Frame drop tracking
     dropped_frames: int = 0
     
+    # IP camera specific metrics
+    ip_acquisition_latency_ms: Optional[float] = None
+    ip_reconnect_count: Optional[int] = None
+    ip_downtime_ms: Optional[float] = None
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "frame_seq": self.frame_seq,
             "timestamp": self.timestamp,
             "capture_latency_ms": round(self.capture_latency_ms, 2),
@@ -62,6 +67,16 @@ class FrameMetrics:
             "alert_latency_ms": round(self.alert_latency_ms, 2) if self.alert_latency_ms else None,
             "dropped_frames": self.dropped_frames,
         }
+        
+        # Include IP camera metrics only if present
+        if self.ip_acquisition_latency_ms is not None:
+            result["ip_acquisition_latency_ms"] = round(self.ip_acquisition_latency_ms, 2)
+        if self.ip_reconnect_count is not None:
+            result["ip_reconnect_count"] = self.ip_reconnect_count
+        if self.ip_downtime_ms is not None:
+            result["ip_downtime_ms"] = round(self.ip_downtime_ms, 2)
+        
+        return result
 
 
 @dataclass

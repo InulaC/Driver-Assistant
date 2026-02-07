@@ -15,6 +15,7 @@ class FrameSource(Enum):
     CSI = "csi"           # Raspberry Pi CSI camera
     WEBCAM = "webcam"     # USB webcam / integrated camera
     VIDEO_FILE = "video"  # Video file playback
+    IP_CAMERA = "ip"      # IP camera stream (MJPEG/RTSP)
 
 
 @dataclass

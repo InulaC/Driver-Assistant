@@ -11,6 +11,7 @@ from src.capture.adapter import CameraAdapter, CaptureConfig
 from src.capture.frame import FrameSource
 from src.capture.opencv_camera import OpenCVCameraAdapter
 from src.capture.video_file import VideoFileAdapter
+from src.capture.ip_camera import IPCameraAdapter
 from src.utils.platform import is_raspberry_pi
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,13 @@ def create_camera_adapter(
     elif source == FrameSource.WEBCAM:
         logger.info(f"Creating OpenCV camera adapter (index {config.camera_index})")
         return OpenCVCameraAdapter(config)
+    
+    elif source == FrameSource.IP_CAMERA:
+        if config.ip_url is None:
+            raise ValueError("ip_url required for IP_CAMERA source")
+        
+        logger.info(f"Creating IP camera adapter")
+        return IPCameraAdapter(config)
     
     else:
         raise ValueError(f"Unknown frame source: {source}")

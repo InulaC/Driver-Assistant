@@ -627,6 +627,21 @@ class DisplayRenderer:
         """
         return self._last_key in (ord('q'), ord('Q'), 27)  # q, Q, or ESC
     
+    def poll_key(self) -> None:
+        """
+        Poll for key press without displaying a frame.
+        
+        Use this when frames are dropping but you still need to
+        check for quit commands.
+        """
+        if not self._window_created:
+            return
+        
+        try:
+            self._last_key = cv2.waitKey(1) & 0xFF
+        except Exception:
+            pass
+    
     def cleanup(self) -> None:
         """Clean up display resources."""
         if self._window_created:

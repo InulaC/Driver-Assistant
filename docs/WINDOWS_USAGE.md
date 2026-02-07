@@ -18,6 +18,14 @@ python -m src.main --source video --video-path videos/laneTest2.mp4 --display
 python -m src.main --source webcam --display
 ```
 
+### 4. Run with IP Camera (Phone/Network Camera)
+```powershell
+# Using IP Webcam app on Android or similar
+python -m src.main --source ip --ip-url http://192.168.1.100:8080/video --display
+```
+> **Tip:** Replace `192.168.1.100` with your phone/camera's IP address. 
+> Find it in your IP Webcam app settings or check your router's connected devices.
+
 ---
 
 ## Sample Commands
@@ -28,6 +36,9 @@ python -m src.main --source video --video-path videos/laneTest2.mp4 --display
 
 # Run with webcam (camera index 0)
 python -m src.main --source webcam --display
+
+# Run with IP camera (phone as webcam via IP Webcam app)
+python -m src.main --source ip --ip-url http://192.168.1.100:8080/video --display
 
 # Run headless (no display window)
 python -m src.main --source video --video-path videos/test.mp4 --headless
@@ -42,8 +53,9 @@ python -m src.main --source webcam --display --config my_config.yaml
 
 | Option | Description |
 |--------|-------------|
-| `--source` | `video`, `webcam`, or `csi` (Pi only) |
+| `--source` | `video`, `webcam`, `ip`, or `csi` (Pi only) |
 | `--video-path` | Path to video file (required for video source) |
+| `--ip-url` | IP camera stream URL (required for ip source) |
 | `--display` | Show visual output window |
 | `--headless` | Run without display |
 | `--config` | Custom config file (default: config.yaml) |
