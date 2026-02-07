@@ -14,12 +14,12 @@ capture:
   reconnect_interval_ms: 500
 
 yolo:
-  enabled: true                 # Set to false to disable YOLO detection entirely
+  enabled: false                 # Set to false to disable YOLO detection entirely
   model_path: models/object.onnx
   input_size: [640, 640]
   confidence_threshold: 0.25
   iou_threshold: 0.45
-  frame_skip: 8
+  frame_skip: 5
   cache_ttl_ms: 500
   # Custom model classes:
   # 0: vehicle, 1: pedestrian, 2: trafficLight (generic),
