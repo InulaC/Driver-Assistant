@@ -7,42 +7,27 @@ from .result import Detection, DetectionLabel
 
 
 # Custom model class names
-# Model labels: {0: 'biker', 1: 'car', 2: 'pedestrian', 3: 'trafficLight', 
-#                4: 'trafficLight-Green', 5: 'trafficLight-GreenLeft',
-#                6: 'trafficLight-Red', 7: 'trafficLight-RedLeft',
-#                8: 'trafficLight-Yellow', 9: 'trafficLight-YellowLeft', 10: 'truck'}
+# Model labels: {0: 'vehicle', 1: 'pedestrian', 2: 'trafficLight', 
+#                3: 'trafficLight-Green', 4: 'trafficLight-Red', 5: 'trafficLight-Yellow'}
 MODEL_CLASSES = [
-    "biker",                # 0
-    "car",                  # 1
-    "pedestrian",           # 2
-    "trafficLight",         # 3  - generic, ignored
-    "trafficLight-Green",   # 4
-    "trafficLight-GreenLeft",  # 5 - ignored
-    "trafficLight-Red",     # 6
-    "trafficLight-RedLeft", # 7 - ignored
-    "trafficLight-Yellow",  # 8
-    "trafficLight-YellowLeft",  # 9 - ignored
-    "truck",                # 10
+    "vehicle",              # 0
+    "pedestrian",           # 1
+    "trafficLight",         # 2  - generic
+    "trafficLight-Green",   # 3
+    "trafficLight-Red",     # 4
+    "trafficLight-Yellow",  # 5
 ]
 
 # Class index to DetectionLabel mapping
 # Maps custom model classes to our detection labels
 CLASS_MAPPING: dict[int, DetectionLabel] = {
-    0: DetectionLabel.BIKER,              # biker
-    1: DetectionLabel.VEHICLE,            # car
-    2: DetectionLabel.PEDESTRIAN,         # pedestrian
-    3: DetectionLabel.TRAFFIC_LIGHT,      # trafficLight (generic)
-    4: DetectionLabel.TRAFFIC_LIGHT_GREEN,   # trafficLight-Green
-    # 5: ignored - trafficLight-GreenLeft
-    6: DetectionLabel.TRAFFIC_LIGHT_RED,     # trafficLight-Red
-    # 7: ignored - trafficLight-RedLeft
-    8: DetectionLabel.TRAFFIC_LIGHT_YELLOW,  # trafficLight-Yellow
-    # 9: ignored - trafficLight-YellowLeft
-    10: DetectionLabel.VEHICLE,           # truck
+    0: DetectionLabel.VEHICLE,               # vehicle
+    1: DetectionLabel.PEDESTRIAN,            # pedestrian
+    2: DetectionLabel.TRAFFIC_LIGHT,         # trafficLight (generic)
+    3: DetectionLabel.TRAFFIC_LIGHT_GREEN,   # trafficLight-Green
+    4: DetectionLabel.TRAFFIC_LIGHT_RED,     # trafficLight-Red
+    5: DetectionLabel.TRAFFIC_LIGHT_YELLOW,  # trafficLight-Yellow
 }
-
-# Classes to ignore (left-turn arrows)
-IGNORED_CLASSES = {5, 7, 9}  # GreenLeft, RedLeft, YellowLeft
 
 
 def compute_iou(box1: np.ndarray, box2: np.ndarray) -> float:
@@ -151,12 +136,9 @@ def process_yolo_output(
     # Filter by confidence
     conf_mask = confidences >= conf_threshold
     
-    # Optionally filter to only relevant classes (and exclude ignored ones)
+    # Optionally filter to only relevant classes
     if filter_relevant_only:
-        relevant_mask = np.array([
-            cid in CLASS_MAPPING and cid not in IGNORED_CLASSES 
-            for cid in class_ids
-        ])
+        relevant_mask = np.array([cid in CLASS_MAPPING for cid in class_ids])
         mask = conf_mask & relevant_mask
     else:
         mask = conf_mask
@@ -215,11 +197,7 @@ def create_detections(
     detections = []
     
     for class_id, confidence, bbox in raw_detections:
-        # Skip ignored classes
-        if class_id in IGNORED_CLASSES:
-            continue
-            
-        # Get label from mapping (skip if not relevant)
+        # Get label from mapping (skip if not in mapping)
         label = CLASS_MAPPING.get(class_id)
         if label is None:
             continue

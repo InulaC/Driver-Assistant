@@ -22,18 +22,15 @@ yolo:
   frame_skip: 5
   cache_ttl_ms: 500
   # Custom model classes:
-  # 0: biker, 1: car, 2: pedestrian, 3: trafficLight (generic),
-  # 4: trafficLight-Green, 5: trafficLight-GreenLeft (ignored),
-  # 6: trafficLight-Red, 7: trafficLight-RedLeft (ignored),
-  # 8: trafficLight-Yellow, 9: trafficLight-YellowLeft (ignored), 10: truck
+  # 0: vehicle, 1: pedestrian, 2: trafficLight (generic),
+  # 3: trafficLight-Green, 4: trafficLight-Red, 5: trafficLight-Yellow
   classes:
-    - biker
-    - car
+    - vehicle
     - pedestrian
-    - traffic_light_green
-    - traffic_light_red
-    - traffic_light_yellow
-    - truck
+    - trafficLight
+    - trafficLight-Green
+    - trafficLight-Red
+    - trafficLight-Yellow
 
 lane_detection:
   roi_top_ratio: 0.625
