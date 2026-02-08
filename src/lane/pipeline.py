@@ -209,9 +209,9 @@ class LaneDetectionPipeline:
         roi_top = int(height * self._config.roi_top_ratio)
         
         # Define trapezoid vertices
-        # Wider at top to capture curves, full width at bottom
-        top_width_ratio = 0.4  # Wider at top for curves
-        bottom_width_ratio = 1.0  # Full width at bottom
+        # Narrower horizontally to focus on lane markings, not road edges
+        top_width_ratio = 0.35  # Narrower at top
+        bottom_width_ratio = 0.85  # Not full width at bottom - excludes road edges
         
         top_left_x = int(width * (0.5 - top_width_ratio / 2))
         top_right_x = int(width * (0.5 + top_width_ratio / 2))

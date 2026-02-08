@@ -77,9 +77,10 @@ class GeometricFilter:
         rejected = 0
         
         center_x = frame_width / 2
-        # Allow some overlap near center for curved lanes
-        left_boundary = center_x + frame_width * 0.1  # Left lines can extend slightly past center
-        right_boundary = center_x - frame_width * 0.1  # Right lines can extend slightly past center
+        # Widen the classification zones - allow more overlap
+        # This helps when camera is not perfectly centered
+        left_boundary = center_x + frame_width * 0.25  # Left lines can extend past center
+        right_boundary = center_x - frame_width * 0.25  # Right lines can extend past center
         
         for line in lines:
             # Reject if too short
@@ -108,24 +109,27 @@ class GeometricFilter:
             mid_x, mid_y = line.midpoint
             # Use bottom point for better spatial classification (more reliable)
             bottom_x = line.x1 if line.y1 > line.y2 else line.x2
+            bottom_y = max(line.y1, line.y2)
             
-            # Classify by position primarily, slope as secondary check
-            # Left lane: mostly left of center
-            # Right lane: mostly right of center
-            if bottom_x < center_x and mid_x < left_boundary:
-                # Left side - expect negative slope but allow some variance for curves
-                if line.slope < 0.3:  # Allow slightly positive for curves
+            # Primary classification by SLOPE direction
+            # In image coordinates (y increases downward):
+            # - Left lane: lines go from bottom-left to top-right -> NEGATIVE slope
+            # - Right lane: lines go from bottom-right to top-left -> POSITIVE slope
+            
+            if line.slope < 0:
+                # Negative slope = Left lane candidate
+                # Verify it's in left half of frame (with tolerance)
+                if mid_x < left_boundary:
                     left_candidates.append(line)
                 else:
                     rejected += 1
-            elif bottom_x > center_x and mid_x > right_boundary:
-                # Right side - expect positive slope but allow some variance for curves
-                if line.slope > -0.3:  # Allow slightly negative for curves
+            else:
+                # Positive slope = Right lane candidate
+                # Verify it's in right half of frame (with tolerance)
+                if mid_x > right_boundary:
                     right_candidates.append(line)
                 else:
                     rejected += 1
-            else:
-                rejected += 1
         
         # Filter out inconsistent lines within each group
         left_lines = self._filter_inconsistent_lines(left_candidates)

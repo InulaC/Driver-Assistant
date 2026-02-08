@@ -178,8 +178,15 @@ class OvertakeAssistant:
             overtake_side=self._config.overtake_side,
         )
         
+        # Debug: log zone calculation
+        if clearance_zone:
+            logger.debug(f"Clearance zone: {clearance_zone}")
+        else:
+            logger.debug("Clearance zone: empty (calculation failed)")
+        
         # Validate zone geometry
         if not is_zone_valid(clearance_zone, frame_width):
+            logger.debug(f"Zone validation failed for frame {frame_width}x{frame_height}")
             self._state_tracker.update(
                 lanes_valid=False,
                 zone_clear=True,
@@ -260,31 +267,37 @@ class OvertakeAssistant:
         """
         Check if enable conditions are met.
         
+        Prioritizes the overtake-side lane (right lane for left-hand traffic).
+        Will enable with reduced confidence if only the critical lane is detected.
+        
         Returns:
             Tuple of (conditions_met: bool, reason: str)
         """
-        # Both lanes must be detected
-        if not lane_result.valid:
-            return (False, "Both lanes not detected")
-        
-        if lane_result.left_lane is None or lane_result.right_lane is None:
-            return (False, "Missing lane detection")
-        
-        # Check lane confidence - only check the lane on the overtake side
-        # Use the lane's built-in confidence directly
-        left_confidence = lane_result.left_lane.confidence if lane_result.left_lane else 0.0
-        right_confidence = lane_result.right_lane.confidence if lane_result.right_lane else 0.0
-        
+        # Determine which lane is critical based on traffic side
         # For left-hand traffic (overtake on right), right lane is critical
         # For right-hand traffic (overtake on left), left lane is critical
         if self._config.overtake_side == "right":
-            # Left-hand traffic: check right lane
-            if right_confidence < self._config.min_lane_confidence:
-                return (False, f"Right lane confidence too low ({right_confidence:.2f})")
+            critical_lane = lane_result.right_lane
+            other_lane = lane_result.left_lane
+            critical_name = "Right"
         else:
-            # Right-hand traffic: check left lane
-            if left_confidence < self._config.min_lane_confidence:
-                return (False, f"Left lane confidence too low ({left_confidence:.2f})")
+            critical_lane = lane_result.left_lane
+            other_lane = lane_result.right_lane
+            critical_name = "Left"
+        
+        # Critical lane (overtake side) must be detected
+        if critical_lane is None:
+            return (False, f"{critical_name} lane not detected")
+        
+        # Check critical lane confidence
+        if critical_lane.confidence < self._config.min_lane_confidence:
+            return (False, f"{critical_name} lane confidence too low ({critical_lane.confidence:.2f})")
+        
+        # Other lane is preferred but not strictly required
+        # If missing, we can still proceed with reduced functionality
+        if other_lane is None:
+            # Allow operation but with a warning logged
+            logger.debug(f"Operating with only {critical_name.lower()} lane detected")
         
         return (True, "")
     
