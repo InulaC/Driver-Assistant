@@ -1,14 +1,28 @@
 # Vehicle Safety Alert System — System Architecture Document
 
-**Version:** 1.0  
-**Date:** 2026-01-28  
+**Version:** 2.0  
+**Date:** 2026-02-17  
 **Classification:** Safety-Critical Alerting Software (Proof-of-Concept)  
 **Target Platform:** Raspberry Pi 4 (8GB RAM) / Windows 10/11
+
+> **See also:** [ARCHITECTURE_SUMMARY.md](ARCHITECTURE_SUMMARY.md) for a condensed overview optimized for LLM context.
 
 ---
 
 ## Implementation Notes (recent updates)
 
+### Version 2.0 Changes (February 2026)
+- **TF-Luna LiDAR Integration**: Added UART-based LiDAR sensor for collision confirmation, reducing false positives from vision-only detection.
+- **Overtake Assistant**: Advisory-only module for evaluating overtake safety (clearance zone, lane marking detection, vehicle presence).
+- **IP Camera Support**: Network stream capture (MJPEG/RTSP) with auto-reconnection and latency minimization.
+- **GPIO Braking Output**: GPIO5 output pin triggered on COLLISION_IMMINENT alert (demonstration only).
+- **GPIO Status LEDs**: System running (GPIO17), Alert active (GPIO27), Collision output (GPIO22).
+- **CSI Camera Improvements**: Better error handling, increased buffer count, warmup time, hardware alignment.
+- **Telemetry Analysis Tool**: Standalone tool (`tools/analyze_telemetry.py`) for analyzing telemetry files and generating performance graphs.
+- **Traffic Side Configuration**: Support for left-hand (UK, Japan, India, Sri Lanka) and right-hand traffic (US, Europe).
+- **Camera Diagnostic Tool**: `tools/diagnose_camera.py` for troubleshooting camera issues.
+
+### Version 1.0 Features
 - Dynamic lane-aligned `DangerZone` implemented: when both lanes are detected the danger polygon is updated from lane polynomials; otherwise the configured trapezoid is used as a fallback.
 - Traffic-light alerts simplified to a single detection alert (implementation uses a single traffic-light detected type with a separate `alerts.traffic_light_cooldown_ms` configuration to avoid repeated notifications).
 - Alert display persistence: `alerts.alert_hold_frames` controls how many frames a display alert remains visible across YOLO-skip frames.
@@ -30,14 +44,18 @@ The system operates under strict latency, determinism, and fault-tolerance const
 ### 1.2 System Boundaries
 
 **In Scope:**
-- Real-time frame acquisition from CSI camera (Raspberry Pi) or webcam/video file (Windows)
-- YOLOv11s-based object detection for 5 classes (traffic lights, pedestrians, vehicles)
+- Real-time frame acquisition from CSI camera (Raspberry Pi), IP camera (network), webcam, or video file
+- YOLOv11s-based object detection for 6 classes (traffic lights ×3, pedestrians, vehicles)
 - Classical computer vision lane detection with temporal stabilization
+- **TF-Luna LiDAR distance measurement for collision confirmation**
 - Trapezoidal danger zone collision risk evaluation
+- **Overtake safety advisory (clearance zone evaluation)**
 - Priority-based audio alert dispatch (3.5mm audio + GPIO buzzer)
+- **GPIO outputs for collision (GPIO22) and braking (GPIO5)**
 - Optional graphical overlay rendering
 - Performance telemetry and JSON Lines logging
-- Optional IR distance sensor integration (final development stage)
+- **Telemetry analysis tool with graph generation**
+- Optional IR distance sensor integration
 
 **Out of Scope (Non-Goals):**
 - Vehicle control or actuation of any kind
@@ -622,6 +640,165 @@ Provide supplementary proximity sensing as a secondary collision warning input.
 - Fixed polling interval (default: 100ms)
 - Readings smoothed with 3-sample median filter
 - No impact on vision pipeline timing
+
+---
+
+### 3.9 TF-Luna LiDAR Module (NEW)
+
+**Purpose:**  
+Provide distance measurement for collision confirmation, reducing false positives from vision-only detection.
+
+**Hardware:**
+- Sensor: Benewake TF-Luna (single-point LiDAR)
+- Interface: UART at 115200 baud
+- Range: 10cm - 800cm
+
+**Connection:**
+| TF-Luna | Raspberry Pi |
+|---------|--------------|
+| 5V | Pin 2 (5V) |
+| GND | Pin 6 (GND) |
+| TX | Pin 10 (GPIO15/RXD) |
+| RX | Pin 8 (GPIO14/TXD) |
+
+**Inputs:**
+- UART serial port (`/dev/ttyAMA0`)
+- Configuration: threshold, EMA alpha
+
+**Outputs:**
+- Distance reading (cm)
+- Signal strength
+- Valid flag
+
+**Features:**
+- Background thread for continuous reading
+- EMA filtering (α=0.3) for noise reduction
+- Minimum signal strength validation
+- Automatic reconnection on disconnect
+
+**Integration with Collision Detection:**
+```python
+# Collision alert only triggers when BOTH conditions met:
+# 1. Object detected in danger zone (vision)
+# 2. LiDAR distance < threshold (600cm default)
+
+# If LiDAR unavailable, system degrades to vision-only
+```
+
+**Configuration:**
+```yaml
+lidar:
+  enabled: true
+  port: "/dev/ttyAMA0"
+  collision_threshold_cm: 600
+  required_for_collision: true
+```
+
+**Failure Behavior:**
+| Failure Mode | Response |
+|--------------|----------|
+| Sensor not connected | Disable LiDAR, fallback to vision-only |
+| Invalid readings | Ignore, use cached value |
+| UART error | Attempt reconnection |
+
+---
+
+### 3.10 GPIO Output Module (NEW)
+
+**Purpose:**  
+Control status LEDs and external system outputs via GPIO pins.
+
+**Pin Assignments:**
+| Pin | Function | Trigger |
+|-----|----------|---------|
+| GPIO17 | System LED | ON when system running |
+| GPIO27 | Alert LED | ON during active alerts |
+| GPIO22 | Collision Output | HIGH when object in danger zone |
+| GPIO5 | Braking Output | HIGH when COLLISION_IMMINENT |
+| GPIO18 | Buzzer | Pattern-based alerts |
+
+**Braking Output (GPIO5) - DEMONSTRATION ONLY:**
+```python
+# Triggered when:
+# - COLLISION_IMMINENT alert is generated
+# - Both vision AND LiDAR confirm collision risk
+
+# WARNING: Real autonomous braking requires:
+# - Safety-critical redundant hardware
+# - Fail-safe mechanisms
+# - Regulatory compliance
+```
+
+**Configuration:**
+```yaml
+gpio_leds:
+  enabled: true
+  system_led_pin: 17
+  alert_led_pin: 27
+  collision_output_pin: 22
+  braking_output_pin: 5
+```
+
+**Failure Behavior:**
+| Failure Mode | Response |
+|--------------|----------|
+| GPIO not available | Disable GPIO module, log warning |
+| Pin conflict | Skip conflicting pin, continue |
+
+---
+
+### 3.11 Overtake Assistant Module (NEW)
+
+**Purpose:**  
+Advisory-only module for evaluating overtake safety. **NOT a safety system.**
+
+**⚠️ DISCLAIMER:**
+This module provides advisory information only and must NEVER be relied upon for actual driving decisions. Limitations include:
+- Camera blind spots
+- Processing delays
+- Detection errors
+- Cannot see around obstacles
+- Does not account for vehicle speeds
+
+**Evaluation Criteria:**
+1. **Lane Stability** - Both lanes detected for N consecutive frames
+2. **Clearance Zone** - Area to overtaking side clear of vehicles
+3. **Lane Marking** - Broken line (overtaking allowed) vs solid line
+
+**Status Output:**
+| Status | Meaning |
+|--------|---------|
+| `DISABLED` | Cannot evaluate (conditions not met) |
+| `UNSAFE` | Do not overtake (vehicle in zone or solid line) |
+| `SAFE` | Advisory: conditions appear favorable |
+
+**Traffic Side Configuration:**
+```yaml
+overtake_assistant:
+  enabled: true
+  traffic_side: "left"   # Drive on left → Overtake on RIGHT (UK, Japan, India, Sri Lanka)
+  # traffic_side: "right" # Drive on right → Overtake on LEFT (US, Europe)
+  safe_frames_required: 8
+  zone_width_ratio: 1.5
+```
+
+**Clearance Zone Geometry:**
+- Zone is calculated relative to detected lanes
+- Width: 1.5× lane width (configurable)
+- Extends from `zone_y_top_ratio` to bottom of frame
+
+**Integration:**
+```python
+# Called after lane detection and YOLO inference
+overtake_status = overtake_assistant.evaluate(
+    lane_result=lane_result,
+    detections=detections,
+    frame_shape=frame.shape
+)
+
+# Status displayed on overlay (optional)
+# Does NOT trigger any audio alerts
+```
 
 ---
 
@@ -1687,68 +1864,81 @@ ir_sensor:  # Optional
 ## Appendix B: Directory Structure
 
 ```
-driver-assistant/
+Driver-Assistant/
 ├── README.md
 ├── ARCHITECTURE.md              # This document
+├── ARCHITECTURE_SUMMARY.md      # Condensed LLM-friendly summary
 ├── requirements.txt
 ├── requirements-pi.txt          # Raspberry Pi specific
 ├── requirements-dev.txt         # Development/testing
-├── setup.py
+├── requirements-analysis.txt    # Telemetry analysis tools
 ├── config.yaml                  # Default configuration
+├── driver_assistant.py          # CLI entry point
 │
 ├── src/
 │   ├── __init__.py
-│   ├── main.py                  # Entry point
+│   ├── main.py                  # Main processing loop
 │   ├── config.py                # Configuration management
 │   │
 │   ├── capture/
 │   │   ├── __init__.py
 │   │   ├── adapter.py           # Abstract camera adapter
-│   │   ├── csi_camera.py        # Raspberry Pi CSI
-│   │   ├── opencv_camera.py     # Windows webcam
+│   │   ├── factory.py           # Camera factory
+│   │   ├── frame.py             # Frame dataclass
+│   │   ├── csi_camera.py        # Raspberry Pi CSI (picamera2)
+│   │   ├── ip_camera.py         # IP camera (MJPEG/RTSP)
+│   │   ├── opencv_camera.py     # USB webcam
 │   │   └── video_file.py        # Video file playback
 │   │
 │   ├── detection/
 │   │   ├── __init__.py
-│   │   ├── yolo_module.py       # YOLO inference
+│   │   ├── detector.py          # YOLO ONNX inference
 │   │   ├── preprocessing.py     # Input preprocessing
 │   │   ├── postprocessing.py    # NMS, coordinate scaling
-│   │   └── cache.py             # Detection cache
+│   │   └── result.py            # Detection dataclass
 │   │
 │   ├── lane/
 │   │   ├── __init__.py
 │   │   ├── pipeline.py          # Main lane detection
 │   │   ├── color_filter.py      # HSV segmentation
-│   │   ├── edge_detection.py    # Canny/Sobel
+│   │   ├── edge_detection.py    # Canny edges
 │   │   ├── hough_lines.py       # Line extraction
-│   │   ├── geometric_filter.py  # Line validation
+│   │   ├── geometric_filter.py  # Slope-based classification
 │   │   ├── polynomial_fit.py    # Lane fitting
-│   │   └── temporal.py          # EMA stabilization
-│   │
-│   ├── danger_zone/
-│   │   ├── __init__.py
-│   │   └── evaluator.py         # Collision risk evaluation
+│   │   ├── temporal.py          # EMA stabilization
+│   │   └── result.py            # LaneResult dataclass
 │   │
 │   ├── alerts/
 │   │   ├── __init__.py
-│   │   ├── decision_engine.py   # Priority-based decisions
-│   │   ├── audio_adapter.py     # Abstract audio adapter
-│   │   ├── audio_alsa.py        # Linux audio
-│   │   ├── audio_windows.py     # Windows audio
-│   │   └── gpio_buzzer.py       # GPIO buzzer control
-│   │
-│   ├── telemetry/
-│   │   ├── __init__.py
-│   │   ├── logger.py            # JSON Lines logging
-│   │   └── metrics.py           # Performance metrics
+│   │   ├── decision.py          # Priority-based decisions
+│   │   ├── audio.py             # Audio playback
+│   │   ├── gpio_buzzer.py       # GPIO buzzer control
+│   │   └── types.py             # Alert types
 │   │
 │   ├── sensors/
 │   │   ├── __init__.py
+│   │   ├── lidar.py             # TF-Luna LiDAR
 │   │   └── ir_distance.py       # Optional IR sensor
+│   │
+│   ├── gpio/
+│   │   ├── __init__.py
+│   │   └── status_leds.py       # Status LEDs + braking output
+│   │
+│   ├── overtake/
+│   │   ├── __init__.py
+│   │   ├── assistant.py         # Main overtake module
+│   │   ├── clearance.py         # Clearance zone calculation
+│   │   ├── state.py             # State machine
+│   │   ├── line_analysis.py     # Broken/solid detection
+│   │   └── types.py             # OvertakeStatus enum
 │   │
 │   ├── display/
 │   │   ├── __init__.py
 │   │   └── renderer.py          # Optional overlay rendering
+│   │
+│   ├── telemetry/
+│   │   ├── __init__.py
+│   │   └── logger.py            # JSON Lines logging
 │   │
 │   └── utils/
 │       ├── __init__.py
@@ -1756,8 +1946,12 @@ driver-assistant/
 │       ├── timing.py            # Timing utilities
 │       └── geometry.py          # Polygon operations
 │
+├── tools/
+│   ├── analyze_telemetry.py     # Telemetry analysis with graphs
+│   └── diagnose_camera.py       # Camera diagnostic tool
+│
 ├── models/
-│   └── yolov11s.onnx            # Pre-trained model
+│   └── object.onnx              # YOLOv11s model
 │
 ├── sounds/
 │   ├── collision.wav
@@ -1768,18 +1962,15 @@ driver-assistant/
 │   └── warning.wav
 │
 ├── tests/
-│   ├── __init__.py
 │   ├── conftest.py              # pytest fixtures
-│   ├── fixtures/                # Test images/videos
-│   ├── unit/
-│   ├── integration/
-│   └── performance/
+│   ├── test_*.py                # Test modules
+│   └── fixtures/                # Test images/videos
 │
-└── docs/
-    ├── deployment.md            # Deployment guide
-    ├── testing.md               # Testing guide
-    ├── troubleshooting.md       # Troubleshooting guide
-    └── cli_reference.md         # CLI documentation
+├── scripts/
+│   ├── setup-pi.sh              # Raspberry Pi setup
+│   └── driver-assistant.service # systemd service file
+│
+└── videos/                      # Test video files
 ```
 
 ---
