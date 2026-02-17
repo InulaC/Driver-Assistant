@@ -101,6 +101,7 @@ gpio_leds:
   system_led_pin: 17    # System running indicator (green LED recommended)
   alert_led_pin: 27     # Alert active indicator (red LED recommended)
   collision_output_pin: 22  # HIGH when collision/object detected (for external systems)
+  braking_output_pin: 5     # HIGH when autonomous braking triggered (GPIO5)
 
 # TF-Luna LiDAR Sensor
 lidar:

@@ -385,6 +385,7 @@ class DriverAssistant:
             system_pin=self._config.gpio_leds.system_led_pin,
             alert_pin=self._config.gpio_leds.alert_led_pin,
             collision_output_pin=self._config.gpio_leds.collision_output_pin,
+            braking_output_pin=self._config.gpio_leds.braking_output_pin,
             enabled=self._config.gpio_leds.enabled,
         )
         
@@ -561,6 +562,19 @@ class DriverAssistant:
             lane_result=lane_result,  # For dynamic danger zone
         )
         metrics.decision_latency_ms = (time.monotonic() - decision_start) * 1000
+        
+        # =====================================================================
+        # Stage 7.5: Autonomous Braking Output (GPIO5)
+        # =====================================================================
+        # Trigger braking output when collision is imminent
+        # WARNING: This is an EXAMPLE output. Real autonomous braking requires
+        # safety-critical hardware and redundant fail-safes.
+        if self._gpio_leds is not None:
+            collision_imminent = (
+                alert is not None and 
+                alert.alert_type == AlertType.COLLISION_IMMINENT
+            )
+            self._gpio_leds.set_braking_output(collision_imminent)
         
         # =====================================================================
         # Stage 8: Alert Dispatch (non-blocking)

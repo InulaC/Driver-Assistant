@@ -41,10 +41,10 @@ def default_config():
 def mock_left_lane():
     """Create a mock left lane polynomial."""
     # x = ay² + by + c
-    # At y=312 (65% of 480), x = ~128
-    # At y=479, x = ~64
+    # Centered lanes for 640x480 frame
+    # Left lane at ~100-120 pixels from left edge
     return LanePolynomial(
-        coefficients=(0.0001, -0.1, 80),
+        coefficients=(0.0001, -0.05, 150),
         y_range=(312, 479),
         confidence=0.85,
         point_count=50,
@@ -54,10 +54,9 @@ def mock_left_lane():
 @pytest.fixture
 def mock_right_lane():
     """Create a mock right lane polynomial."""
-    # At y=312, x = ~512
-    # At y=479, x = ~576
+    # Right lane at ~400-450 pixels, leaving room for clearance zone on right
     return LanePolynomial(
-        coefficients=(0.0001, 0.1, 560),
+        coefficients=(0.0001, 0.05, 400),
         y_range=(312, 479),
         confidence=0.85,
         point_count=55,
@@ -92,9 +91,13 @@ def invalid_lane_result():
 
 @pytest.fixture
 def vehicle_detection():
-    """Create a vehicle detection in the clearance zone."""
+    """Create a vehicle detection in the clearance zone.
+    
+    For left-hand traffic (overtake on right), clearance zone is to the right
+    of the right lane. With right lane at ~400-450px, clearance zone is ~450-640.
+    """
     return Detection(
-        bbox=(50.0, 350.0, 100.0, 400.0),  # Left side of frame
+        bbox=(480.0, 350.0, 560.0, 420.0),  # In right-side clearance zone
         confidence=0.8,
         label=DetectionLabel.VEHICLE,
         timestamp=0.0,
@@ -132,19 +135,19 @@ class TestStateTracker:
     
     def test_requires_consecutive_safe_frames_for_safe(self):
         """Should require N consecutive safe frames before SAFE status."""
+        # Note: safe frame counting starts from when lanes become stable
+        # With required_stable_frames=1, first update makes us stable AND counts as first safe frame
         tracker = StateTracker(required_stable_frames=1, required_safe_frames=3)
         
-        # Get past stability requirement
-        tracker.update(lanes_valid=True, zone_clear=True, broken_line=True)
-        
-        # Count safe frames
+        # First update: becomes stable + safe_count=1
         result = tracker.update(lanes_valid=True, zone_clear=True, broken_line=True)
-        assert result == OvertakeStatus.UNSAFE
+        assert result == OvertakeStatus.UNSAFE  # count=1, need 3
         
+        # Second update: safe_count=2
         result = tracker.update(lanes_valid=True, zone_clear=True, broken_line=True)
-        assert result == OvertakeStatus.UNSAFE
+        assert result == OvertakeStatus.UNSAFE  # count=2, need 3
         
-        # Now should be SAFE
+        # Third update: safe_count=3 -> SAFE
         result = tracker.update(lanes_valid=True, zone_clear=True, broken_line=True)
         assert result == OvertakeStatus.SAFE
     

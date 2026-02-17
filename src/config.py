@@ -161,6 +161,7 @@ class GPIOLEDConfig:
     system_led_pin: int = 17  # System running indicator
     alert_led_pin: int = 27   # Alert active indicator
     collision_output_pin: int = 22  # HIGH when collision/object detected
+    braking_output_pin: int = 5  # HIGH when autonomous braking triggered
 
 
 @dataclass
@@ -372,6 +373,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
             system_led_pin=led_data.get("system_led_pin", 17),
             alert_led_pin=led_data.get("alert_led_pin", 27),
             collision_output_pin=led_data.get("collision_output_pin", 22),
+            braking_output_pin=led_data.get("braking_output_pin", 5),
         )
     
     # Parse LiDAR config
